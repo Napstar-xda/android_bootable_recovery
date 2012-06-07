@@ -68,6 +68,59 @@ int device_wipe_data() {
     return 0;
 }
 
+int get_menu_icon_info(int indx1, int indx2) {
+//ToDo: Following switch case should be replaced by array or structure
+
+int caseN = indx1*4 + indx2;
+/*
+int MENU_ICON1[] = {
+		{  1*resX/8,	(resY - MENU_MAX_HEIGHT/2), 0*resX/4, 1*resX/4 },
+		{  3*resX/8,	(resY - MENU_MAX_HEIGHT/2), 1*resX/4, 2*resX/4 },
+		{  5*resX/8,	(resY - MENU_MAX_HEIGHT/2), 2*resX/4, 3*resX/4 },
+		{  7*resX/8,	(resY - MENU_MAX_HEIGHT/2), 3*resX/4, 4*resX/4 }, 
+	};
+
+*/
+
+switch (caseN) {
+	case 0:
+		return 1*resX/8;
+	case 1:
+		return (resY - MENU_MAX_HEIGHT()/2);
+	case 2:
+		return 0*resX/4;
+	case 3:
+		return 1*resX/4;
+	case 4:
+		return 3*resX/8;
+	case 5:
+		return (resY - MENU_MAX_HEIGHT()/2);
+	case 6:
+		return 1*resX/4;
+	case 7:
+		return 2*resX/4;
+	case 8:
+		return 5*resX/8;
+	case 9:
+		return (resY - MENU_MAX_HEIGHT()/2);
+	case 10:
+		return 2*resX/4;
+	case 11:
+		return 3*resX/4;
+	case 12:
+		return 7*resX/8;
+	case 13:
+		return (resY - MENU_MAX_HEIGHT()/2);
+	case 14:
+		return 3*resX/4;
+	case 15:
+		return 4*resX/4;
+
+}
+
+return 0;
+}
+
 
 //For those devices which has skewed X axis and Y axis detection limit (Not similar to XY resolution of device), So need normalization
 int MT_X(int x)
@@ -84,4 +137,12 @@ int MT_Y(int y)
 	out = maxY ? (y*gr_fb_height()/maxY) : y;		
 
 	return out;
+}
+
+
+//In this case MENU_SELECT icon has maximum possible height.
+//Maximum allowed height for navigation icons
+ int MENU_MAX_HEIGHT()
+{
+	return gr_get_height(gMenuIco[MENU_SELECT]);
 }

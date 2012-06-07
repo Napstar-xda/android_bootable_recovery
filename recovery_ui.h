@@ -18,6 +18,7 @@
 #define _RECOVERY_UI_H
 
 #include "common.h"
+#include "minui/minui.h"
 
 // Called before UI library is initialized.  Can change things like
 // how many frames are included in various animations, etc.
@@ -93,8 +94,15 @@ extern char* MENU_ITEMS[];
 // Loosely track the depth of the current menu
 int ui_menu_level;
 
+#define MENU_ICON_X			0
+#define MENU_ICON_Y			1
+#define MENU_ICON_XL		2
+#define MENU_ICON_XR		3
+
 extern int resX;
 extern int resY;
+int get_menu_icon_info(int indx1, int indx2);
+extern gr_surface *gMenuIco;
 
 int
 get_menu_selection(char** headers, char** items, int menu_only, int initial_selection);

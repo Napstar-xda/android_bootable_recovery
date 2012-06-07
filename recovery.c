@@ -44,6 +44,9 @@
 #include "extendedcommands.h"
 #include "flashutils/flashutils.h"
 
+#define ABS_MT_POSITION_X 0x35  /* Center X ellipse position */
+#define ABS_MT_POSITION_Y 0x36  /* Center Y ellipse position */
+
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
   { "update_package", required_argument, NULL, 'u' },
@@ -442,10 +445,12 @@ get_menu_selection(char** headers, char** items, int menu_only,
     int wrap_count = 0;
 
     while (chosen_item < 0 && chosen_item != GO_BACK) {
-        int key = ui_wait_key();
+		struct keyStruct *key;
+		key = ui_wait_key();
+
         int visible = ui_text_visible();
 
-        if (key == -1) {   // ui_wait_key() timed out
+        if (key->code == -1) {   // ui_wait_key() timed out
             if (ui_text_ever_visible()) {
                 continue;
             } else {
@@ -455,7 +460,12 @@ get_menu_selection(char** headers, char** items, int menu_only,
             }
         }
 
-        int action = device_handle_key(key, visible);
+		int action;
+		if(key->code == ABS_MT_POSITION_X || key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN)
+	        action = device_handle_mouse(key, visible);
+		else
+	        action = device_handle_key(key->code, visible);
+
 
         int old_selected = selected;
 

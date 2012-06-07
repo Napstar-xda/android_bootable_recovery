@@ -20,6 +20,13 @@
 #include "common.h"
 #include "extendedcommands.h"
 
+/*
+	to enable on-screen debug code printing set this to 1
+	to disable on-screen debug code printing set this to 0
+*/
+int TOUCH_CONTROL_DEBUG = 0;
+
+
 //Device specific boundaries for touch recognition
 /*	
 	WARNING

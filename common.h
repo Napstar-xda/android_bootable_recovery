@@ -76,6 +76,14 @@ enum {
   MENU_DOWN_M,
   MENU_UP_M,
   MENU_SELECT_M,
+  MENU_BUTTON_R,
+  MENU_BUTTON_R_SEL,
+  MENU_BUTTON_L,
+  MENU_BUTTON_L_SEL,
+  MENU_BUTTON_L_LOWHALF,
+  MENU_BUTTON_R_LOWHALF,
+  MENU_BUTTON_R_HALF,
+  MENU_TITLE_BGK,
   NUM_MENU_ICON
 };
 
@@ -84,6 +92,8 @@ struct keyStruct{
 	int code;
 	int x;
 	int y;
+	int length;
+	int Xlength;
 };
 
 void ui_set_background(int icon);

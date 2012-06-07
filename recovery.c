@@ -473,7 +473,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
         int visible = ui_text_visible();
 
 		int action;
-		if(key->code == ABS_MT_POSITION_X)
+		if(key->code == ABS_MT_POSITION_X || key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN)
 	        action = device_handle_mouse(key, visible);
 		else
 	        action = device_handle_key(key->code, visible);
@@ -504,10 +504,15 @@ get_menu_selection(char** headers, char** items, int menu_only,
                     chosen_item = GO_BACK;
                     break;
             }
+        } else if (key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) {
+			selected = action;
+			selected = ui_menu_select(selected);
         } else if (!menu_only) {
-            chosen_item = action;
+			selected = action;
+            chosen_item = selected;
         }
 
+/*
         if (abs(selected - old_selected) > 1) {
             wrap_count++;
             if (wrap_count == 3) {
@@ -522,6 +527,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 }
             }
         }
+*/
     }
 
     ui_end_menu();

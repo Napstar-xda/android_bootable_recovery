@@ -15,7 +15,6 @@
  */
 
 #include <linux/input.h>
-#include "recovery_ui.h"
 
 //these are included in the original kernel's linux/input.h but are missing from AOSP
 
@@ -50,8 +49,20 @@ static int gShowBackButton = 1;
 static int gShowBackButton = 0;
 #endif
 
+#define MENU_HEIGHT gr_get_height(gMenuIcon[MENU_BUTTON_L])				//For touch based graphical menu
+#define MENU_CENTER (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)			//To bring menu text at the center of button. Text location from bottom of menu button.
+#define MENU_INCREMENT (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)		//Used for plotting menu buttons - specify spacing between two successive buttons location (X-start, Y-start)
+#define MENU_ITEM_LEFT_OFFSET 0.05*resX						//X location relative to screen width for placement of menu items inside two cloumns of menu buttons
+#define MENU_ITEM_RIGHT_OFFSET 0.55*resX
+#define MENU_TITLE_BGK_HEIGHT gr_get_height(gMenuIcon[MENU_TITLE_BGK])
+
+//In this case MENU_SELECT icon has maximum possible height.
+#define MENU_MAX_HEIGHT gr_get_height(gMenuIcon[MENU_SELECT])		//Maximum allowed height for navigation icons
+
+#define BUTTON_MAX_ROWS (int)(0.8*resY/MENU_INCREMENT)		//80% of screen length is allowed to have menu buttons
+
 #define MAX_COLS 96
-#define MAX_ROWS 32
+#define MAX_ROWS 40
 
 #define MENU_MAX_COLS 64
 #define MENU_MAX_ROWS 250
@@ -70,12 +81,14 @@ static int gShowBackButton = 0;
 static pthread_mutex_t gUpdateMutex = PTHREAD_MUTEX_INITIALIZER;
 static gr_surface gBackgroundIcon[NUM_BACKGROUND_ICONS];
 static gr_surface gMenuIcon[NUM_MENU_ICON];
+gr_surface *gMenuIco = &gMenuIcon[0];
 static gr_surface gProgressBarIndeterminate[PROGRESSBAR_INDETERMINATE_STATES];
 static gr_surface gProgressBarEmpty;
 static gr_surface gProgressBarFill;
 static int ui_has_initialized = 0;
 static int ui_log_stdout = 1;
 static int selMenuIcon = 0;
+static int selMenuButtonIcon = -1;
 
 static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gBackgroundIcon[BACKGROUND_ICON_INSTALLING], "icon_installing" },
@@ -91,6 +104,14 @@ static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gMenuIcon[MENU_DOWN_M],    "icon_downM" },
     { &gMenuIcon[MENU_UP_M], 	  "icon_upM" },
     { &gMenuIcon[MENU_SELECT_M],  "icon_selectM" },
+	{ &gMenuIcon[MENU_BUTTON_L],    	"button_L" },
+	{ &gMenuIcon[MENU_BUTTON_L_SEL],	"button_L_sel" },
+	{ &gMenuIcon[MENU_BUTTON_R],    	"button_R" },
+	{ &gMenuIcon[MENU_BUTTON_R_SEL],	"button_R_sel" },
+	{ &gMenuIcon[MENU_BUTTON_L_LOWHALF],	"button_L_Lowhalf" },
+	{ &gMenuIcon[MENU_BUTTON_R_LOWHALF],	"button_R_Lowhalf" },
+	{ &gMenuIcon[MENU_BUTTON_R_HALF],	"button_R_half" },
+	{ &gMenuIcon[MENU_TITLE_BGK], 	 	"menu_title_bgk" },
     { &gProgressBarIndeterminate[0],    "indeterminate1" },
     { &gProgressBarIndeterminate[1],    "indeterminate2" },
     { &gProgressBarIndeterminate[2],    "indeterminate3" },
@@ -151,6 +172,7 @@ static struct mousePosStruct {
   int size;
   int num;
   int length; // length of the line drawn while in touch state
+  int Xlength; // length of the line drawn along X axis while in touch state
 } actPos, grabPos, oldMousePos[MAX_MT_POINTS], mousePos[MAX_MT_POINTS];
 //Struct to return key events to recovery.c through ui_wait_key()
 volatile struct keyStruct key;
@@ -162,26 +184,36 @@ static void draw_background_locked(gr_surface icon)
 {
     gPagesIdentical = 0;
     gr_color(0, 0, 0, 255);
-    gr_fill(0, 0, gr_fb_width(), gr_fb_height());
+    gr_fill(0, 0, resX, resY);
 
     if (icon) {
         int iconWidth = gr_get_width(icon);
         int iconHeight = gr_get_height(icon);
-        int iconX = (gr_fb_width() - iconWidth) / 2;
-        int iconY = (gr_fb_height() - iconHeight) / 2;
+        int iconX = (resX - iconWidth) / 2;
+        int iconY = (resY - iconHeight) / 2;
         gr_blit(icon, 0, 0, iconWidth, iconHeight, iconX, iconY);
     }
 }
 
 // Draw the currently selected icon (if any) at given location.
 // Should only be called with gUpdateMutex locked.
-static void draw_icon_locked(gr_surface icon,int locX, int locY)
+static void draw_icon_locked(gr_surface icon,int locX, int locY, int Width, int Height)
 {
     gPagesIdentical = 0;
 
     if (icon) {
-        int iconWidth = gr_get_width(icon);
-        int iconHeight = gr_get_height(icon);
+		int iconWidth;
+		int iconHeight;
+        if(Width > 0 && Height > 0)
+		{
+			iconWidth = Width;
+			iconHeight = Height;
+		}
+		else
+		{
+			iconWidth = gr_get_width(icon);
+			iconHeight = gr_get_height(icon);
+		}
         int iconX = locX - iconWidth / 2;
         int iconY = locY - iconHeight / 2;
         gr_blit(icon, 0, 0, iconWidth, iconHeight, iconX, iconY);
@@ -198,8 +230,8 @@ static void draw_progress_locked()
     int width = gr_get_width(gProgressBarEmpty);
     int height = gr_get_height(gProgressBarEmpty);
 
-    int dx = (gr_fb_width() - width)/2;
-    int dy = (3*gr_fb_height() + iconHeight - 2*height)/4;
+    int dx = (resX - width)/2;
+    int dy = (3*resY + iconHeight - 2*height)/4;
 
     // Erase behind the progress bar (in case this was a progress-only update)
     gr_color(0, 0, 0, 255);
@@ -224,16 +256,20 @@ static void draw_progress_locked()
     }
 }
 
-static void draw_text_line(int row, const char* t) {
+static void draw_text_line(int row, const char* t, int rowOffset, int isMenu, int xOffset) {
   if (t[0] != '\0') {
-    gr_text(0, (row+1)*CHAR_HEIGHT-1, t);
+    if (isMenu == 1)
+		gr_text(xOffset, rowOffset + (row+1)*MENU_INCREMENT-1+(MENU_HEIGHT/2), t);
+	else
+		gr_text(xOffset, rowOffset + (row+1)*CHAR_HEIGHT-1, t);
   }
 }
 
-//#define MENU_TEXT_COLOR 255, 160, 49, 255
-#define MENU_TEXT_COLOR 0, 191, 255, 255
+//#define MENU_TEXT_COLOR 255, 0, 0, 255
+#define MENU_TEXT_COLOR 200, 200, 200, 255
 #define NORMAL_TEXT_COLOR 200, 200, 200, 255
 #define HEADER_TEXT_COLOR NORMAL_TEXT_COLOR
+//#define HEADER_TEXT_COLOR 0, 0, 0, 255
 
 // Redraw everything on the screen.  Does not flip pages.
 // Should only be called with gUpdateMutex locked.
@@ -254,51 +290,88 @@ static void draw_screen_locked(void)
 
     if (show_text) {
         gr_color(0, 0, 0, 160);
-        gr_fill(0, 0, gr_fb_width(), gr_fb_height());
+        gr_fill(0, 0, resX, resY);
 
         int i = 0;
         int j = 0;
+		int isMenu = 1;
+		int rowOffset = 0;
         int row = 0;            // current row that we are drawing on
         if (show_menu) {
 
-			draw_icon_locked(gMenuIcon[MENU_BACK], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y );
-			draw_icon_locked(gMenuIcon[MENU_DOWN], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
-			draw_icon_locked(gMenuIcon[MENU_UP], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y );
-			draw_icon_locked(gMenuIcon[MENU_SELECT], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y );
-            gr_color(MENU_TEXT_COLOR);
-            gr_fill(0, (menu_top + menu_sel - menu_show_start) * CHAR_HEIGHT,
-                    gr_fb_width(), (menu_top + menu_sel - menu_show_start + 1)*CHAR_HEIGHT+1);
+			draw_icon_locked(gMenuIcon[MENU_BACK], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y, 0, 0 );
+			draw_icon_locked(gMenuIcon[MENU_DOWN], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y, 0, 0);
+			draw_icon_locked(gMenuIcon[MENU_UP], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y, 0, 0 );
+			draw_icon_locked(gMenuIcon[MENU_SELECT], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y, 0, 0 );
+            //gr_color(MENU_TEXT_COLOR);
+            //gr_fill(0, (menu_top + menu_sel - menu_show_start) * CHAR_HEIGHT,
+            //        resX, (menu_top + menu_sel - menu_show_start + 1)*CHAR_HEIGHT+1);
 
-            gr_color(HEADER_TEXT_COLOR);
+			draw_icon_locked(gMenuIcon[MENU_TITLE_BGK], resX/2, MENU_TITLE_BGK_HEIGHT/2 , 0, 0 );            
+			gr_color(HEADER_TEXT_COLOR);
             for (i = 0; i < menu_top; ++i) {
-                draw_text_line(i, menu[i]);
+                draw_text_line(i, menu[i], rowOffset, !isMenu, 0);
                 row++;
             }
 
-            if (menu_items - menu_show_start + menu_top >= MAX_ROWS)
-                j = MAX_ROWS - menu_top;
+            if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+                j = BUTTON_MAX_ROWS - menu_top;
             else
                 j = menu_items - menu_show_start;
 
+			rowOffset = menu_top*CHAR_HEIGHT-MENU_CENTER;		//Offset for printing menu text. 1/3rd of menu height so as to consider proper text placing inside button based on graphic shape.
             gr_color(MENU_TEXT_COLOR);
             for (i = menu_show_start + menu_top; i < (menu_show_start + menu_top + j); ++i) {
-                if (i == menu_top + menu_sel) {
-                    gr_color(255, 255, 255, 255);
-                    draw_text_line(i - menu_show_start , menu[i]);
+				if (i == menu_top + menu_sel) {
+					if ((i - menu_top - menu_show_start)%2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
+						gr_color(255, 0, 0, 255);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_LEFT_OFFSET);
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
+						gr_color(255, 0, 0, 255);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_RIGHT_OFFSET);
+					}					
                     gr_color(MENU_TEXT_COLOR);
                 } else {
-                    gr_color(MENU_TEXT_COLOR);
-                    draw_text_line(i - menu_show_start, menu[i]);
+					if ((i - menu_top - menu_show_start)%2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
+	                    gr_color(MENU_TEXT_COLOR);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_LEFT_OFFSET);
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
+	                    gr_color(MENU_TEXT_COLOR);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_RIGHT_OFFSET);
+					}
+
                 }
                 row++;
             }
-            gr_fill(0, row*CHAR_HEIGHT+CHAR_HEIGHT/2-1,
-                    gr_fb_width(), row*CHAR_HEIGHT+CHAR_HEIGHT/2+1);
+			if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+			{
+				if((BUTTON_MAX_ROWS - menu_top)%2 == 0)
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2, 0, 0 );
+				else
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2, 0, 0 );
+			}
+			if (menu_show_start > 0)
+			{
+				draw_icon_locked(gMenuIcon[MENU_BUTTON_R_HALF], resX/2, menu_top*CHAR_HEIGHT + MENU_INCREMENT * 0.5, 0, 0 );
+			}
         }
+		rowOffset = menu_top*CHAR_HEIGHT + (row - menu_top + 2)*MENU_INCREMENT;
+		if(row == 0)
+			rowOffset=0;
 
         gr_color(NORMAL_TEXT_COLOR);
-        for (; row < text_rows; ++row) {
-            draw_text_line(row, text[(row+text_top) % text_rows]);
+        for (i=0; (rowOffset/CHAR_HEIGHT + i) < text_rows; ++i) {
+            draw_text_line(i, text[(rowOffset/CHAR_HEIGHT + i + text_top) % text_rows], rowOffset, !isMenu, 0);
         }
     }
 }
@@ -359,18 +432,75 @@ static void *progress_thread(void *cookie)
 // handle the action associated with user input touch events inside the ui handler
 int device_handle_mouse(struct keyStruct *key, int visible)
 {
+	int j=0;
+	if(show_menu && visible)
+	{
+		if((key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) && (abs(abs(key->length) - abs(key->Xlength)) < 0.2*resY ))
+		{
+			if(key->code == KEY_SCROLLDOWN)
+			{
+				selMenuButtonIcon = -1;
+				if (menu_show_start > 0)
+				{
+					menu_show_start = menu_show_start-BUTTON_MAX_ROWS+menu_top;
+					if (menu_show_start < 0)
+						menu_show_start = 0;
+						selMenuButtonIcon = 0;
+					return menu_show_start;
+				}			
+
+				return GO_BACK;
+			}
+			else if	(key->code == KEY_SCROLLUP)
+			{
+				if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+				{
+					menu_show_start = menu_show_start+BUTTON_MAX_ROWS-menu_top -1;
+					selMenuButtonIcon = 1;
+					return menu_show_start+1;
+				}
+			}
+		}
+		else if((key->y < (resY - MENU_MAX_HEIGHT)) &&  (key->length < 0.1*resY))
+		{
+		    if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+    			j = BUTTON_MAX_ROWS - menu_top;
+    		else
+    			j = menu_items - menu_show_start;
+		
+			int rowOffset = menu_top*CHAR_HEIGHT;
+
+			int sel_menu;
+			if(key->x < resX/2)
+			{
+				sel_menu = (int)((key->y - rowOffset)/MENU_HEIGHT );
+				sel_menu = sel_menu*2;
+			}
+			else
+			{
+				sel_menu = (int)((key->y - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+				sel_menu = sel_menu*2 + 1;
+			}
+
+			if(key->y > rowOffset && key->y < rowOffset + j*MENU_INCREMENT)
+			{	
+				selMenuButtonIcon = -1;
+				return sel_menu+menu_show_start;
+			}
+		}
+		else if((key->y > (resY - MENU_MAX_HEIGHT))  &&  (key->length < 0.1*resY)) 
+		{
+
 //ToDo: Following structure should be global
-	struct { int x; int y; int xL; int xR; } MENU_ICON[] = {
-		{  get_menu_icon_info(MENU_BACK,MENU_ICON_X),	get_menu_icon_info(MENU_BACK,MENU_ICON_Y), get_menu_icon_info(MENU_BACK,MENU_ICON_XL), get_menu_icon_info(MENU_BACK,MENU_ICON_XR) },
-		{  get_menu_icon_info(MENU_DOWN,MENU_ICON_X),	get_menu_icon_info(MENU_DOWN,MENU_ICON_Y), get_menu_icon_info(MENU_DOWN,MENU_ICON_XL), get_menu_icon_info(MENU_DOWN,MENU_ICON_XR) },
-		{  get_menu_icon_info(MENU_UP,MENU_ICON_X),	get_menu_icon_info(MENU_UP,MENU_ICON_Y), get_menu_icon_info(MENU_UP,MENU_ICON_XL), get_menu_icon_info(MENU_UP,MENU_ICON_XR) },
-		{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
-	};
+		struct { int x; int y; int xL; int xR; } MENU_ICON[] = {
+			{  get_menu_icon_info(MENU_BACK,MENU_ICON_X),	get_menu_icon_info(MENU_BACK,MENU_ICON_Y), get_menu_icon_info(MENU_BACK,MENU_ICON_XL), get_menu_icon_info(MENU_BACK,MENU_ICON_XR) },
+			{  get_menu_icon_info(MENU_DOWN,MENU_ICON_X),	get_menu_icon_info(MENU_DOWN,MENU_ICON_Y), get_menu_icon_info(MENU_DOWN,MENU_ICON_XL), get_menu_icon_info(MENU_DOWN,MENU_ICON_XR) },
+			{  get_menu_icon_info(MENU_UP,MENU_ICON_X),	get_menu_icon_info(MENU_UP,MENU_ICON_Y), get_menu_icon_info(MENU_UP,MENU_ICON_XL), get_menu_icon_info(MENU_UP,MENU_ICON_XR) },
+			{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
+		};
+		int position;
 
-	if (visible) {
-	int position;
-
-	position = key->x;
+		position = key->x;
 
 		if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
 			return GO_BACK;
@@ -380,7 +510,8 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 			return HIGHLIGHT_UP;
 		else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
 			return SELECT_ITEM;
-    }
+		}
+	}
 	return NO_ACTION;
 }
 
@@ -399,40 +530,98 @@ static void ui_handle_mouse_input(int* curPos)
 
 if(TOUCH_CONTROL_DEBUG)
 {
-	ui_print("Touch gr_fb_width:\t%d,\tgr_fb_height:\t%d\n",gr_fb_width(),gr_fb_height());
+	ui_print("Touch gr_fb_width:\t%d,\tgr_fb_height:\t%d\n",resX,resY);
 	ui_print("Touch X:\t%d,\tY:\t%d\n",curPos[1],curPos[2]);
 }
 
   if (show_menu) {
     if (curPos[0] > 0) {
-		int position;
+		int positionX,positionY;
 
-		position = curPos[1];
+		positionX = curPos[1];
+		positionY = curPos[2];
 
 		pthread_mutex_lock(&gUpdateMutex);
-		if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR ) {
-			draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y );
-			draw_icon_locked(gMenuIcon[MENU_BACK_M], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y );
-			selMenuIcon = MENU_BACK;
-			gr_flip();
+		if(positionY < (resY - MENU_MAX_HEIGHT)) {
+			int j=0;
+	
+		    if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+    			j = BUTTON_MAX_ROWS - menu_top;
+    		else
+    			j = menu_items - menu_show_start;
+		
+			int rowOffset = menu_top*CHAR_HEIGHT;
+			int sel_menu;
+			if(positionX < resX/2)
+			{
+				sel_menu = (int)((positionY - rowOffset)/MENU_HEIGHT );
+				sel_menu = sel_menu*2;
+			}
+			else
+			{
+				sel_menu = (int)((positionY - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+				sel_menu = sel_menu*2 + 1;
+			}
+
+			if(selMenuButtonIcon < 0)
+				selMenuButtonIcon = 0;
+
+			if(positionY > rowOffset && positionY < rowOffset + j*MENU_INCREMENT && selMenuButtonIcon != sel_menu)
+			{	
+				if (sel_menu %2 == 0)
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT, 0, 0 );
+	                gr_color(255, 0, 0, 255);
+					draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+				}
+				else
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT, 0, 0 );
+	                gr_color(255, 0, 0, 255);
+					draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+				}
+				if (selMenuButtonIcon %2 == 0)
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT, 0, 0 );
+	                gr_color(MENU_TEXT_COLOR);
+					draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+				}
+				else
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT, 0, 0 );
+	                gr_color(MENU_TEXT_COLOR);
+					draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+				}
+				selMenuButtonIcon = sel_menu;
+				menu_sel = sel_menu;
+				gr_flip();
+			}
 		}
-		else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR ) {			
-			draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y );
-			draw_icon_locked(gMenuIcon[MENU_DOWN_M], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
-			selMenuIcon = MENU_DOWN;
-			gr_flip();
-		}
-		else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR ) {
-			draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y );			
-			draw_icon_locked(gMenuIcon[MENU_UP_M], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y );
-			selMenuIcon = MENU_UP;
-			gr_flip();
-		}
-		else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR ) {
-			draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y );			
-			draw_icon_locked(gMenuIcon[MENU_SELECT_M], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y );
-			selMenuIcon = MENU_SELECT;
-			gr_flip();
+		else {
+			if(positionX > MENU_ICON[MENU_BACK].xL && positionX < MENU_ICON[MENU_BACK].xR) {
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y, 0, 0 );
+				draw_icon_locked(gMenuIcon[MENU_BACK_M], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y, 0, 0 );
+				selMenuIcon = MENU_BACK;
+				gr_flip();
+			}
+			else if(positionX > MENU_ICON[MENU_DOWN].xL && positionX < MENU_ICON[MENU_DOWN].xR) {			
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y, 0, 0 );
+				draw_icon_locked(gMenuIcon[MENU_DOWN_M], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y, 0, 0);
+				selMenuIcon = MENU_DOWN;
+				gr_flip();
+			}
+			else if(positionX > MENU_ICON[MENU_UP].xL && positionX < MENU_ICON[MENU_UP].xR) {
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y, 0, 0 );			
+				draw_icon_locked(gMenuIcon[MENU_UP_M], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y, 0, 0 );
+				selMenuIcon = MENU_UP;
+				gr_flip();
+			}
+			else if(positionX > MENU_ICON[MENU_SELECT].xL && positionX < MENU_ICON[MENU_SELECT].xR) {
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y, 0, 0 );			
+				draw_icon_locked(gMenuIcon[MENU_SELECT_M], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y, 0, 0 );
+				selMenuIcon = MENU_SELECT;
+				gr_flip();
+			}
 		}
 		key_queue_len_back = key_queue_len;
 		pthread_mutex_unlock(&gUpdateMutex);
@@ -495,11 +684,32 @@ static void *input_thread(void *cookie)
                     if (actPos.pressure) {
                       if (mousePos[actPos.num].pressure) {
                         actPos.length = mousePos[actPos.num].length + abs(mousePos[actPos.num].x-actPos.x) + abs(mousePos[actPos.num].y-actPos.y);
+					  	if ( ((mousePos[actPos.num].x-actPos.x) < 0 && mousePos[actPos.num].Xlength > 0) || ((mousePos[actPos.num].x-actPos.x) > 0 && mousePos[actPos.num].Xlength < 0))
+					  	{
+							actPos.Xlength = mousePos[actPos.num].x-actPos.x;
+						}
+						else
+					  	{
+					  		actPos.Xlength = mousePos[actPos.num].Xlength + mousePos[actPos.num].x-actPos.x;
+					  	}
                       } else {
                         actPos.length = 0;
+                        actPos.Xlength = 0;
                       }
                     } else {
+						if (abs(mousePos[actPos.num].Xlength) > (0.1*resX))
+					  	{
+					  		if (mousePos[actPos.num].Xlength > 0)
+					  		{
+					  			ev.code = KEY_SCROLLDOWN;
+					  		}
+					  		else
+					  		{
+					  			ev.code = KEY_SCROLLUP;
+					  		}
+					  	}
                       actPos.length = 0;
+                      actPos.Xlength = 0;
                     }
                     oldMousePos[actPos.num] = mousePos[actPos.num];
                     mousePos[actPos.num] = actPos;
@@ -593,11 +803,11 @@ void ui_init(void)
     ev_init();
 
     text_col = text_row = 0;
-    text_rows = gr_fb_height() / CHAR_HEIGHT;
+    text_rows = resY / CHAR_HEIGHT;
     if (text_rows > MAX_ROWS) text_rows = MAX_ROWS;
     text_top = 1;
 
-    text_cols = gr_fb_width() / CHAR_WIDTH;
+    text_cols = resX / CHAR_WIDTH;
     if (text_cols > MAX_COLS - 1) text_cols = MAX_COLS - 1;
 
     int i;
@@ -628,8 +838,8 @@ void ui_init(void)
 char *ui_copy_image(int icon, int *width, int *height, int *bpp) {
     pthread_mutex_lock(&gUpdateMutex);
     draw_background_locked(gBackgroundIcon[icon]);
-    *width = gr_fb_width();
-    *height = gr_fb_height();
+    *width = resX;
+    *height = resY;
     *bpp = sizeof(gr_pixel) * 8;
     int size = *width * *height * sizeof(gr_pixel);
     char *ret = malloc(size);
@@ -760,23 +970,37 @@ void ui_reset_text_col()
     pthread_mutex_unlock(&gUpdateMutex);
 }
 
-#define MENU_ITEM_HEADER " - "
+#define MENU_ITEM_HEADER "..."
 #define MENU_ITEM_HEADER_LENGTH strlen(MENU_ITEM_HEADER)
 
 int ui_start_menu(char** headers, char** items, int initial_selection) {
-    int i;
+    int i,j;
+	int remChar;
+	selMenuButtonIcon=0;
     pthread_mutex_lock(&gUpdateMutex);
     if (text_rows > 0 && text_cols > 0) {
         for (i = 0; i < text_rows; ++i) {
             if (headers[i] == NULL) break;
-            strncpy(menu[i], headers[i], text_cols-1);
-            menu[i][text_cols-1] = '\0';
+			remChar = (int)(resX - strlen(headers[i])*CHAR_WIDTH)/(CHAR_WIDTH*2);
+			for (j = 0; j < remChar; j++) {
+				strcpy(menu[i]+j, " ");
+			}
+            strncpy(menu[i]+remChar, headers[i], text_cols- remChar);
+            menu[i][text_cols-remChar] = '\0';
         }
         menu_top = i;
         for (; i < MENU_MAX_ROWS; ++i) {
             if (items[i-menu_top] == NULL) break;
-            strcpy(menu[i], MENU_ITEM_HEADER);
-            strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top], text_cols-1 - MENU_ITEM_HEADER_LENGTH);
+			if (strlen(items[i-menu_top])*CHAR_WIDTH > resX*0.4 )
+			{
+				remChar = (int)((strlen(items[i-menu_top])*CHAR_WIDTH - resX*0.4)/CHAR_WIDTH) + 3; 
+	            strcpy(menu[i], MENU_ITEM_HEADER);
+	            strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top] + remChar, text_cols-1 - MENU_ITEM_HEADER_LENGTH - remChar);
+			}
+			else
+			{
+				strncpy(menu[i], items[i-menu_top], text_cols-1);
+			}
             menu[i][text_cols-1] = '\0';
         }
 
@@ -812,8 +1036,8 @@ int ui_menu_select(int sel) {
             menu_show_start = menu_sel;
         }
 
-        if (menu_sel - menu_show_start + menu_top >= text_rows) {
-            menu_show_start = menu_sel + menu_top - text_rows + 1;
+        if (menu_sel - menu_show_start + menu_top >= BUTTON_MAX_ROWS) {
+            menu_show_start = menu_sel + menu_top - BUTTON_MAX_ROWS + 1;
         }
 
         sel = menu_sel;
@@ -852,6 +1076,7 @@ void ui_show_text(int visible)
 
 struct keyStruct *ui_wait_key()
 {
+
     pthread_mutex_lock(&key_queue_mutex);
     while (key_queue_len == 0) {
         pthread_cond_wait(&key_queue_cond, &key_queue_mutex);
@@ -869,6 +1094,8 @@ if(TOUCH_CONTROL_DEBUG)
 		key.y = oldMousePos[actPos.num].y;
 	}
 
+	key.length = oldMousePos[actPos.num].length;
+	key.Xlength = oldMousePos[actPos.num].Xlength;
     pthread_mutex_unlock(&key_queue_mutex);
 	return &key;
 }

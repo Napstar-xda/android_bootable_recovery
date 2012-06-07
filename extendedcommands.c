@@ -80,11 +80,11 @@ int install_zip(const char* packagefilepath)
     return 0;
 }
 
-char* INSTALL_MENU_ITEMS[] = {  "choose zip from sdcard",
-                                "apply /sdcard/update.zip",
-                                "toggle signature verification",
-                                "toggle script asserts",
-                                "choose zip from internal sdcard",
+char* INSTALL_MENU_ITEMS[] = {  "zip >> sdcard",
+                                "/sdcard/update.zip",
+                                "toggle sign. verify",
+                                "toggle assert code",
+                                "zip >> internal sd",
                                 NULL };
 #define ITEM_CHOOSE_ZIP       0
 #define ITEM_APPLY_SDCARD     1
@@ -950,6 +950,8 @@ void show_advanced_menu()
 					int code;
 					int x;
 					int y;
+					int length;
+					int Xlength;
 				}*key;
                 int action;
                 do
@@ -959,6 +961,15 @@ void show_advanced_menu()
 					{
 				        action = device_handle_mouse(key, 1);
 						ui_print("Touch: X: %d\tY: %d\n", key->x, key->y);
+					}
+					else if(key->code == KEY_SCROLLDOWN)			//Gesture inputs: Helpful to come out of key test for devices with less hardware keys
+					{
+						action = GO_BACK;
+						ui_print("Gesture Touch: (KEY_SCROLLDOWN) Code: %d\n", key->code);
+					}
+					else if(key->code == KEY_SCROLLUP)
+					{
+						ui_print("Gesture Touch: (KEY_SCROLLUP) Code: %d\n", key->code);
 					}
 					else
 					{

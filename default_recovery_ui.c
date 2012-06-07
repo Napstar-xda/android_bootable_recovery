@@ -24,10 +24,8 @@
 	to enable on-screen debug code printing set this to 1
 	to disable on-screen debug code printing set this to 0
 */
-int TOUCH_CONTROL_DEBUG = 0;
+int TOUCH_CONTROL_DEBUG = 1;
 
-//In this case MENU_SELECT icon has maximum possible height.
-#define MENU_MAX_HEIGHT 80 //gr_get_height(gMenuIcon[MENU_SELECT])		//Maximum allowed height for navigation icons
 
 //Device specific boundaries for touch recognition
 /*	
@@ -37,8 +35,8 @@ int TOUCH_CONTROL_DEBUG = 0;
 	check the values returned by on screen touch output by click on the 
 	touch panel extremeties
 */
-int maxX=480;		//Set to 0 for debugging
-int maxY=800;		//Set to 0 for debugging
+int maxX=0;		//Set to 0 for debugging
+int maxY=0;		//Set to 0 for debugging
 
 /*
 	the values of following two variables are dependent on specifc device resolution
@@ -50,10 +48,10 @@ int resY=800;		//Value obtained from function 'gr_fb_height()'
 char* MENU_HEADERS[] = { NULL };
 
 char* MENU_ITEMS[] = { "reboot system now",
-                       "apply update from sdcard",
-                       "wipe data/factory reset",
-                       "wipe cache partition",
-                       "install zip from sdcard",
+                       "update from sdcard",
+                       "wipe data",
+                       "wipe cache",
+                       "install zip(sdcard)",
                        "backup and restore",
                        "mounts and storage",
                        "advanced",
@@ -153,7 +151,7 @@ switch (caseN) {
 	case 0:
 		return 1*resX/8;
 	case 1:
-		return (resY - MENU_MAX_HEIGHT/2);
+		return (resY - MENU_MAX_HEIGHT()/2);
 	case 2:
 		return 0*resX/4;
 	case 3:
@@ -161,7 +159,7 @@ switch (caseN) {
 	case 4:
 		return 3*resX/8;
 	case 5:
-		return (resY - MENU_MAX_HEIGHT/2);
+		return (resY - MENU_MAX_HEIGHT()/2);
 	case 6:
 		return 1*resX/4;
 	case 7:
@@ -169,7 +167,7 @@ switch (caseN) {
 	case 8:
 		return 5*resX/8;
 	case 9:
-		return (resY - MENU_MAX_HEIGHT/2);
+		return (resY - MENU_MAX_HEIGHT()/2);
 	case 10:
 		return 2*resX/4;
 	case 11:
@@ -177,7 +175,7 @@ switch (caseN) {
 	case 12:
 		return 7*resX/8;
 	case 13:
-		return (resY - MENU_MAX_HEIGHT/2);
+		return (resY - MENU_MAX_HEIGHT()/2);
 	case 14:
 		return 3*resX/4;
 	case 15:
@@ -204,4 +202,12 @@ int MT_Y(int y)
 	out = maxY ? (y*gr_fb_height()/maxY) : y;		
 
 	return out;
+}
+
+
+//In this case MENU_SELECT icon has maximum possible height.
+//Maximum allowed height for navigation icons
+ int MENU_MAX_HEIGHT()
+{
+	return gr_get_height(gMenuIco[MENU_SELECT]);
 }

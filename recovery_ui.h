@@ -17,6 +17,8 @@
 #ifndef _RECOVERY_UI_H
 #define _RECOVERY_UI_H
 
+#include "minui/minui.h"
+
 // Called when recovery starts up.  Returns 0.
 extern int device_recovery_start();
 
@@ -89,10 +91,10 @@ extern char* MENU_ITEMS[];
 
 extern int TOUCH_CONTROL_DEBUG;
 
-extern int maxX;
-extern int maxY;
-
+extern int resX;
+extern int resY;
 int get_menu_icon_info(int indx1, int indx2);
+extern gr_surface *gMenuIco;
 
 int
 get_menu_selection(char** headers, char** items, int menu_only, int initial_selection);

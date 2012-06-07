@@ -495,10 +495,15 @@ get_menu_selection(char** headers, char** items, int menu_only,
                     chosen_item = GO_BACK;
                     break;
             }
+        } else if (key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) {
+			selected = action;
+			selected = ui_menu_select(selected);
         } else if (!menu_only) {
-            chosen_item = action;
+			selected = action;
+            chosen_item = selected;
         }
 
+/*
         if (abs(selected - old_selected) > 1) {
             wrap_count++;
             if (wrap_count == 3) {
@@ -513,6 +518,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 }
             }
         }
+*/
     }
 
     ui_end_menu();

@@ -53,6 +53,18 @@ static int gShowBackButton = 1;
 static int gShowBackButton = 0;
 #endif
 
+#define MENU_HEIGHT gr_get_height(gMenuIcon[MENU_BUTTON_L])				//For touch based graphical menu
+#define MENU_CENTER (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)			//To bring menu text at the center of button. Text location from bottom of menu button.
+#define MENU_INCREMENT (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)		//Used for plotting menu buttons - specify spacing between two successive buttons location (X-start, Y-start)
+#define MENU_ITEM_LEFT_OFFSET 0.05*resX						//X location relative to screen width for placement of menu items inside two cloumns of menu buttons
+#define MENU_ITEM_RIGHT_OFFSET 0.55*resX
+#define MENU_TITLE_BGK_HEIGHT gr_get_height(gMenuIcon[MENU_TITLE_BGK])				//Height of the title image used
+
+//In this case MENU_SELECT icon has maximum possible height.
+#define MENU_MAX_HEIGHT gr_get_height(gMenuIcon[MENU_SELECT])		//Maximum allowed height for navigation icons
+
+#define BUTTON_MAX_ROWS (int)(0.8*resY/MENU_INCREMENT)		//80% of screen length is allowed to have menu buttons
+
 #define MAX_COLS 96
 #define MAX_ROWS 32
 
@@ -76,7 +88,7 @@ UIParameters ui_parameters = {
 
 static pthread_mutex_t gUpdateMutex = PTHREAD_MUTEX_INITIALIZER;
 static gr_surface gBackgroundIcon[NUM_BACKGROUND_ICONS];
-static gr_surface gMenuIcon[NUM_MENU_ICON];
+static gr_surface gMenuIcon[NUM_MENU_ICON];		//All touch control menu/button icons
 gr_surface *gMenuIco = &gMenuIcon[0];
 static gr_surface *gInstallationOverlay;
 static gr_surface *gProgressBarIndeterminate;
@@ -84,7 +96,8 @@ static gr_surface gProgressBarEmpty;
 static gr_surface gProgressBarFill;
 static int ui_has_initialized = 0;
 static int ui_log_stdout = 1;
-static int selMenuIcon = 0;
+static int selMenuIcon = 0;						//Current menu control selection
+static int selMenuButtonIcon = -1;				//Current touch button selection
 
 static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gBackgroundIcon[BACKGROUND_ICON_INSTALLING], "icon_installing" },
@@ -100,6 +113,14 @@ static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gMenuIcon[MENU_DOWN_M],    "icon_downM" },
     { &gMenuIcon[MENU_UP_M], 	  "icon_upM" },
     { &gMenuIcon[MENU_SELECT_M],  "icon_selectM" },
+	{ &gMenuIcon[MENU_BUTTON_L],    	"button_L" },
+	{ &gMenuIcon[MENU_BUTTON_L_SEL],	"button_L_sel" },
+	{ &gMenuIcon[MENU_BUTTON_R],    	"button_R" },
+	{ &gMenuIcon[MENU_BUTTON_R_SEL],	"button_R_sel" },
+	{ &gMenuIcon[MENU_BUTTON_L_LOWHALF],	"button_L_Lowhalf" },
+	{ &gMenuIcon[MENU_BUTTON_R_LOWHALF],	"button_R_Lowhalf" },
+	{ &gMenuIcon[MENU_BUTTON_R_HALF],	"button_R_half" },
+	{ &gMenuIcon[MENU_TITLE_BGK], 	 	"menu_title_bgk" },
     { &gProgressBarEmpty,               "progress_empty" },
     { &gProgressBarFill,                "progress_fill" },
     { NULL,                             NULL },
@@ -260,14 +281,17 @@ static void draw_progress_locked()
     }
 }
 
-static void draw_text_line(int row, const char* t) {
+static void draw_text_line(int row, const char* t, int rowOffset, int isMenu, int xOffset) {
   if (t[0] != '\0') {
-    gr_text(0, (row+1)*CHAR_HEIGHT-1, t);
+    if (isMenu == 1)
+		gr_text(xOffset, rowOffset + (row+1)*MENU_INCREMENT-1+(MENU_HEIGHT/2), t);
+	else
+		gr_text(xOffset, rowOffset + (row+1)*CHAR_HEIGHT-1, t);
   }
 }
 
 //#define MENU_TEXT_COLOR 255, 160, 49, 255
-#define MENU_TEXT_COLOR 0, 191, 255, 255
+#define MENU_TEXT_COLOR 200, 200, 200, 255
 #define NORMAL_TEXT_COLOR 200, 200, 200, 255
 #define HEADER_TEXT_COLOR NORMAL_TEXT_COLOR
 
@@ -295,6 +319,8 @@ static void draw_screen_locked(void)
         int total_rows = (gr_fb_height() / CHAR_HEIGHT) - MIN_BLANK_ROWS;
         int i = 0;
         int j = 0;
+		int isMenu = 1;			// Boolean to identify touch button section apart from other log text section 
+		int rowOffset = 0;		// Offset to adjust row number after adding graphical touch buttons
         int offset = 0;         // offset of separating bar under menus
         int row = 0;            // current row that we are drawing on
         if (show_menu) {
@@ -303,47 +329,88 @@ static void draw_screen_locked(void)
 			draw_icon_locked(gMenuIcon[MENU_DOWN], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
 			draw_icon_locked(gMenuIcon[MENU_UP], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
 			draw_icon_locked(gMenuIcon[MENU_SELECT], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
-            gr_color(MENU_TEXT_COLOR);
-            gr_fill(0, (menu_top + menu_sel - menu_show_start) * CHAR_HEIGHT,
-                    gr_fb_width(), (menu_top + menu_sel - menu_show_start + 1)*CHAR_HEIGHT+1);
+            //gr_color(MENU_TEXT_COLOR);
+            //gr_fill(0, (menu_top + menu_sel - menu_show_start) * CHAR_HEIGHT,
+            //        gr_fb_width(), (menu_top + menu_sel - menu_show_start + 1)*CHAR_HEIGHT+1);
 
-            gr_color(HEADER_TEXT_COLOR);
+			draw_icon_locked(gMenuIcon[MENU_TITLE_BGK], resX/2, MENU_TITLE_BGK_HEIGHT/2);            
+			gr_color(HEADER_TEXT_COLOR);
             for (i = 0; i < menu_top; ++i) {
-                draw_text_line(i, menu[i]);
+                draw_text_line(i, menu[i], rowOffset, !isMenu, 0);
                 row++;
             }
 
-            if (menu_items - menu_show_start + menu_top >= max_menu_rows)
-                j = max_menu_rows - menu_top;
+            if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+                j = BUTTON_MAX_ROWS - menu_top - 1;
             else
-                j = menu_items - menu_show_start;
+                j = menu_items - menu_show_start - 1;
 
+			rowOffset = menu_top*CHAR_HEIGHT-MENU_CENTER;		//Offset for printing menu text. 1/3rd of menu height so as to consider proper text placing inside button based on graphic shape.
             gr_color(MENU_TEXT_COLOR);
             for (i = menu_show_start + menu_top; i < (menu_show_start + menu_top + j); ++i) {
-                if (i == menu_top + menu_sel) {
-                    gr_color(255, 255, 255, 255);
-                    draw_text_line(i - menu_show_start , menu[i]);
+				if (i == menu_top + menu_sel) {
+					if ((i - menu_top - menu_show_start)%2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+						gr_color(255, 0, 0, 255);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_LEFT_OFFSET);
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+						gr_color(255, 0, 0, 255);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_RIGHT_OFFSET);
+					}					
                     gr_color(MENU_TEXT_COLOR);
                 } else {
-                    gr_color(MENU_TEXT_COLOR);
-                    draw_text_line(i - menu_show_start, menu[i]);
+					if ((i - menu_top - menu_show_start)%2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+	                    gr_color(MENU_TEXT_COLOR);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_LEFT_OFFSET);
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+	                    gr_color(MENU_TEXT_COLOR);
+	                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_RIGHT_OFFSET);
+					}
+
                 }
                 row++;
-                if (row >= max_menu_rows - MIN_BLANK_ROWS)
+                if (row >= max_menu_rows - MIN_BLANK_ROWS)				//It is not required with BUTTON_MAX_ROWS available, still left as it is
                     break;
             }
 
+/*
             if (menu_items <= max_menu_rows)
                 offset = 1;
 
             gr_fill(0, (row-offset)*CHAR_HEIGHT+CHAR_HEIGHT/2-1,
                     gr_fb_width(), (row-offset)*CHAR_HEIGHT+CHAR_HEIGHT/2+1);
+*/
+
+			if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+			{
+				if((BUTTON_MAX_ROWS - menu_top - 1)%2 == 0)
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2);
+				else
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2);
+			}
+			if (menu_show_start > 0)
+			{
+				draw_icon_locked(gMenuIcon[MENU_BUTTON_R_HALF], resX/2, menu_top*CHAR_HEIGHT + MENU_INCREMENT * 0.5);
+			}
+
         }
+		rowOffset = menu_top*CHAR_HEIGHT + (row - menu_top + 2)*MENU_INCREMENT;
+		if(row == 0)
+			rowOffset=0;
 
         gr_color(NORMAL_TEXT_COLOR);
         int cur_row = text_row;
-        int available_rows = total_rows - row - 1;
-        int start_row = row + 1;
+        int available_rows = total_rows - (rowOffset/CHAR_HEIGHT) - 1;
+        int start_row = (rowOffset/CHAR_HEIGHT) + 1;
         if (available_rows < MAX_ROWS)
             cur_row = (cur_row + (MAX_ROWS - available_rows)) % MAX_ROWS;
         else
@@ -351,7 +418,7 @@ static void draw_screen_locked(void)
 
         int r;
         for (r = 0; r < (available_rows < MAX_ROWS ? available_rows : MAX_ROWS); r++) {
-            draw_text_line(start_row + r, text[(cur_row + r) % MAX_ROWS]);
+            draw_text_line(start_row + r, text[(cur_row + r) % MAX_ROWS], 0, !isMenu, 0);
         }
     }
 }
@@ -435,6 +502,64 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 	int j=0;
 	if(show_menu && visible)
 	{
+		if((key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) && (abs(abs(key->length) - abs(key->Xlength)) < 0.2*resY ))
+		{
+			if(key->code == KEY_SCROLLDOWN)
+			{
+				selMenuButtonIcon = -1;
+				if (menu_show_start > 0)
+				{
+					menu_show_start = menu_show_start-BUTTON_MAX_ROWS+menu_top;
+					if (menu_show_start < 0)
+						menu_show_start = 0;
+						selMenuButtonIcon = 0;
+					return menu_show_start;
+				}			
+
+				return GO_BACK;
+			}
+			else if	(key->code == KEY_SCROLLUP)
+			{
+				if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+				{
+					menu_show_start = menu_show_start+BUTTON_MAX_ROWS-menu_top -1;
+					selMenuButtonIcon = 1;
+					return menu_show_start+1;
+				}
+			}
+		}
+		else if((key->y < (resY - MENU_MAX_HEIGHT)) &&  (key->length < 0.1*resY))
+		{
+		    if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+    			j = BUTTON_MAX_ROWS - menu_top - 1;
+    		else
+    			j = menu_items - menu_show_start - 1;
+		
+			int rowOffset = menu_top*CHAR_HEIGHT;
+
+			int sel_menu;
+			if(key->x < resX/2)
+			{
+				sel_menu = (int)((key->y - rowOffset)/MENU_HEIGHT );
+				sel_menu = sel_menu*2;
+			}
+			else
+			{
+				sel_menu = (int)((key->y - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+				sel_menu = sel_menu*2 + 1;
+			}
+
+			if(key->y > rowOffset && key->y < rowOffset + j*MENU_INCREMENT)
+			{	
+				selMenuButtonIcon = -1;
+				if(sel_menu+menu_show_start < 0)
+					return 0;
+
+				return sel_menu+menu_show_start;
+			}
+		}
+		else if((key->y > (resY - MENU_MAX_HEIGHT))  &&  (key->length < 0.1*resY)) 
+		{
 
 //ToDo: Following structure should be global
 		struct { int x; int y; int xL; int xR; } MENU_ICON[] = {
@@ -455,6 +580,7 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 			return HIGHLIGHT_UP;
 		else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
 			return SELECT_ITEM;
+		}
 	}
 	return NO_ACTION;
 }
@@ -486,7 +612,62 @@ if(TOUCH_CONTROL_DEBUG)
 		positionY = curPos[2];
 
 		pthread_mutex_lock(&gUpdateMutex);
+		if(positionY < (resY - MENU_MAX_HEIGHT)) {
+			int j=0;
+	
+		    if (menu_items - menu_show_start + menu_top > BUTTON_MAX_ROWS)
+    			j = BUTTON_MAX_ROWS - menu_top - 1;
+    		else
+    			j = menu_items - menu_show_start - 1;
 		
+			int rowOffset = menu_top*CHAR_HEIGHT;
+			int sel_menu;
+			if(positionX < resX/2)
+			{
+				sel_menu = (int)((positionY - rowOffset)/MENU_HEIGHT );
+				sel_menu = sel_menu*2;
+			}
+			else
+			{
+				sel_menu = (int)((positionY - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+				sel_menu = sel_menu*2 + 1;
+			}
+
+			if(selMenuButtonIcon < 0)
+				selMenuButtonIcon = 0;
+
+			if(positionY > rowOffset && positionY < rowOffset + j*MENU_INCREMENT && selMenuButtonIcon != sel_menu)
+			{	
+				if (sel_menu %2 == 0)
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
+	                gr_color(255, 0, 0, 255);
+					draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+				}
+				else
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
+	                gr_color(255, 0, 0, 255);
+					draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+				}
+				if (selMenuButtonIcon %2 == 0)
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
+	                gr_color(MENU_TEXT_COLOR);
+					draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+				}
+				else
+				{
+					draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
+	                gr_color(MENU_TEXT_COLOR);
+					draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+				}
+				selMenuButtonIcon = sel_menu;
+				menu_sel = sel_menu;
+				gr_flip();
+			}
+		}
+		else {
 			if(positionX > MENU_ICON[MENU_BACK].xL && positionX < MENU_ICON[MENU_BACK].xR) {
 				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
 				draw_icon_locked(gMenuIcon[MENU_BACK_M], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
@@ -511,7 +692,7 @@ if(TOUCH_CONTROL_DEBUG)
 				selMenuIcon = MENU_SELECT;
 				gr_flip();
 			}
-
+		}
 		key_queue_len_back = key_queue_len;
 		pthread_mutex_unlock(&gUpdateMutex);
      }
@@ -924,23 +1105,37 @@ void ui_reset_text_col()
     pthread_mutex_unlock(&gUpdateMutex);
 }
 
-#define MENU_ITEM_HEADER " - "
+#define MENU_ITEM_HEADER "..."
 #define MENU_ITEM_HEADER_LENGTH strlen(MENU_ITEM_HEADER)
 
 int ui_start_menu(char** headers, char** items, int initial_selection) {
-    int i;
+    int i,j;
+	int remChar;
+	selMenuButtonIcon=0;
     pthread_mutex_lock(&gUpdateMutex);
     if (text_rows > 0 && text_cols > 0) {
         for (i = 0; i < text_rows; ++i) {
             if (headers[i] == NULL) break;
-            strncpy(menu[i], headers[i], text_cols-1);
-            menu[i][text_cols-1] = '\0';
+			remChar = (int)(resX - strlen(headers[i])*CHAR_WIDTH)/(CHAR_WIDTH*2);            //To centre align text from header
+			for (j = 0; j < remChar; j++) {
+				strcpy(menu[i]+j, " ");
+			}
+            strncpy(menu[i]+remChar, headers[i], text_cols- remChar);
+            menu[i][text_cols-remChar] = '\0';
         }
         menu_top = i;
         for (; i < MENU_MAX_ROWS; ++i) {
             if (items[i-menu_top] == NULL) break;
-            strcpy(menu[i], MENU_ITEM_HEADER);
-            strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top], MENU_MAX_COLS - 1 - MENU_ITEM_HEADER_LENGTH);
+            if (strlen(items[i-menu_top])*CHAR_WIDTH > resX*0.4 )			//Here "resX*0.4" is the maximum menu text length in each column. 
+			{
+				remChar = (int)((strlen(items[i-menu_top])*CHAR_WIDTH - resX*0.4)/CHAR_WIDTH) + 3; 
+	            strcpy(menu[i], MENU_ITEM_HEADER);
+	            strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top] + remChar, MENU_MAX_COLS-1 - MENU_ITEM_HEADER_LENGTH - remChar);
+			}
+			else
+			{
+				strncpy(menu[i], items[i-menu_top], MENU_MAX_COLS-1);
+			}
             menu[i][MENU_MAX_COLS-1] = '\0';
         }
 
@@ -979,8 +1174,8 @@ int ui_menu_select(int sel) {
             menu_show_start = menu_sel;
         }
 
-        if (menu_sel - menu_show_start + menu_top >= max_menu_rows) {
-            menu_show_start = menu_sel + menu_top - max_menu_rows + 1;
+        if (menu_sel - menu_show_start + menu_top >= BUTTON_MAX_ROWS) {
+            menu_show_start = menu_sel + menu_top - BUTTON_MAX_ROWS + 1;
         }
 
         sel = menu_sel;

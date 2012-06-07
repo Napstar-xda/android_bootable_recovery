@@ -93,6 +93,9 @@ extern char* MENU_ITEMS[];
 // Loosely track the depth of the current menu
 int ui_menu_level;
 
+extern int resX;
+extern int resY;
+
 int
 get_menu_selection(char** headers, char** items, int menu_only, int initial_selection);
 

@@ -45,12 +45,14 @@ int maxY=796;		//Set to 0 for debugging
 int resX=480;		//Value obtained from function 'gr_fb_width()'
 int resY=800;		//Value obtained from function 'gr_fb_height()'
 
-char* MENU_HEADERS[] = { NULL };
+char* MENU_HEADERS[] = { "developed by Napstar",
+			 "",
+			NULL };
 
 char* MENU_ITEMS[] = { "reboot system now",
-                       "install zip from sdcard",
-                       "wipe data/factory reset",
-                       "wipe cache partition",
+                       "install zip(sdcard)",
+                       "wipe data",
+                       "wipe cache",
                        "backup and restore",
                        "mounts and storage",
                        "advanced",

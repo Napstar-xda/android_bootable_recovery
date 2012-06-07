@@ -662,7 +662,17 @@ wipe_data(int confirm) {
     if (confirm) {
         static char** title_headers = NULL;
 
-        if (title_headers == NULL) {
+        if (!confirm_selection("Confirm wipe all user data?", "Yes-Wipe All Data"))
+        {
+			return;
+		}
+
+        if (!confirm_selection("Are you sure?", "Yes"))
+        {
+			return;
+		}
+
+  /*      if (title_headers == NULL) {
             char* headers[] = { "Confirm wipe of all user data?",
                                 "  THIS CAN NOT BE UNDONE.",
                                 "",
@@ -687,6 +697,7 @@ wipe_data(int confirm) {
         if (chosen_item != 7) {
             return;
         }
+*/
     }
 
     ui_print("\n-- Wiping data...\n");

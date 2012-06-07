@@ -81,11 +81,11 @@ int install_zip(const char* packagefilepath)
     return 0;
 }
 
-char* INSTALL_MENU_ITEMS[] = {  "choose zip from sdcard",
-                                "apply /sdcard/update.zip",
-                                "toggle signature verification",
-                                "toggle script asserts",
-                                "choose zip from internal sdcard",
+char* INSTALL_MENU_ITEMS[] = {  "zip >> sdcard",
+                                "/sdcard/update.zip",
+                                "toggle sign. verify",
+                                "toggle assert code",
+                                "zip >> internal sd",
                                 NULL };
 #define ITEM_CHOOSE_ZIP       0
 #define ITEM_APPLY_SDCARD     1
@@ -116,7 +116,7 @@ void show_install_update_menu()
                 break;
             case ITEM_APPLY_SDCARD:
             {
-                if (confirm_selection("Confirm install?", "Yes - Install /sdcard/update.zip"))
+                if (confirm_selection("Confirm install?", "Install update.zip"))
                     install_zip(SDCARD_UPDATE_FILE);
                 break;
             }
@@ -793,27 +793,27 @@ void show_nandroid_advanced_restore_menu(const char* path)
     switch (chosen_item)
     {
         case 0:
-            if (confirm_selection(confirm_restore, "Yes - Restore boot"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. boot"))
                 nandroid_restore(file, 1, 0, 0, 0, 0, 0);
             break;
         case 1:
-            if (confirm_selection(confirm_restore, "Yes - Restore system"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. system"))
                 nandroid_restore(file, 0, 1, 0, 0, 0, 0);
             break;
         case 2:
-            if (confirm_selection(confirm_restore, "Yes - Restore data"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. data"))
                 nandroid_restore(file, 0, 0, 1, 0, 0, 0);
             break;
         case 3:
-            if (confirm_selection(confirm_restore, "Yes - Restore cache"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. cache"))
                 nandroid_restore(file, 0, 0, 0, 1, 0, 0);
             break;
         case 4:
-            if (confirm_selection(confirm_restore, "Yes - Restore sd-ext"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. sd-ext"))
                 nandroid_restore(file, 0, 0, 0, 0, 1, 0);
             break;
         case 5:
-            if (confirm_selection(confirm_restore, "Yes - Restore wimax"))
+            if (confirm_selection(confirm_restore, "Yes - Restr. wimax"))
                 nandroid_restore(file, 0, 0, 0, 0, 0, 1);
             break;
     }
@@ -829,9 +829,9 @@ void show_nandroid_menu()
     static char* list[] = { "backup",
                             "restore",
                             "advanced restore",
-                            "backup to internal sdcard",
-                            "restore from internal sdcard",
-                            "advanced restore from internal sdcard",
+                            "backup >> inter sd",
+                            "restr. << inter sd",
+                            "adv. restr internal",
                             NULL
     };
 

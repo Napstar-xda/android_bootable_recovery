@@ -24,7 +24,7 @@
 	to enable on-screen debug code printing set this to 1
 	to disable on-screen debug code printing set this to 0
 */
-int TOUCH_CONTROL_DEBUG = 1;
+int TOUCH_CONTROL_DEBUG = 0;
 
 
 //Device specific boundaries for touch recognition
@@ -45,10 +45,11 @@ int maxY=0;		//Set to 0 for debugging
 int resX=480;		//Value obtained from function 'gr_fb_width()'
 int resY=800;		//Value obtained from function 'gr_fb_height()'
 
-char* MENU_HEADERS[] = { NULL };
+char* MENU_HEADERS[] = { "developed by Napstar",
+			NULL };
 
 char* MENU_ITEMS[] = { "reboot system now",
-                       "update from sdcard",
+                       "install zip(sdcard)",
                        "wipe data",
                        "wipe cache",
                        "install zip(sdcard)",

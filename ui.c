@@ -354,7 +354,7 @@ static void draw_screen_locked(void)
                 } else {
 					if ((i - menu_top - menu_show_start)%2 == 0)
 					{
-						draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
 				                gr_color(MENU_TEXT_COLOR);
 	                			if(menu[i][0] != '-')
 				                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_LEFT_OFFSET);
@@ -366,7 +366,7 @@ static void draw_screen_locked(void)
 					}
 					else
 					{
-						draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT);
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT, 0, 0 );
 				                gr_color(MENU_TEXT_COLOR);
 				                	                    			if(menu[i][0] != '-')
 				                    draw_text_line(i - menu_show_start - menu_top , menu[i], rowOffset, isMenu, MENU_ITEM_RIGHT_OFFSET);

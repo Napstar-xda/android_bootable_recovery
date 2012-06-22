@@ -382,7 +382,7 @@ static void draw_screen_locked(void)
             }
 			if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
 			{
-				if((BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top))%2 == 0)
+				if((BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1)%2 == 0)
 					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2, 0, 0 );
 				else
 					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2, 0, 0 );
@@ -491,9 +491,9 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 		else if((key->y < (resY - MENU_MAX_HEIGHT)) &&  (key->length < 0.1*resY))
 		{
 		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1;
     		else
-    			j = menu_items - menu_show_start;
+    			j = menu_items - menu_show_start - 1;
 		
 			int rowOffset = menu_top*CHAR_HEIGHT;
 
@@ -573,9 +573,9 @@ if(TOUCH_CONTROL_DEBUG)
 			int j=0;
 	
 		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1;
     		else
-    			j = menu_items - menu_show_start;
+    			j = menu_items - menu_show_start - 1;
 		
 			int rowOffset = menu_top*CHAR_HEIGHT;
 			int sel_menu;

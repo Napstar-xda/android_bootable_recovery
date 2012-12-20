@@ -599,7 +599,11 @@ int confirm_selection(const char* title, const char* confirm)
 #ifdef BOARD_TOUCH_RECOVERY
     one_confirm = 1;
 #endif 
-    if (one_confirm) {
+
+//For time being, hardcoded one_confirm for UCtouch recovery
+	one_confirm = 1;
+
+	if (one_confirm) {
         char* items[] = { "No",
                         confirm, //" Yes -- wipe partition",   // [1]
                         NULL };

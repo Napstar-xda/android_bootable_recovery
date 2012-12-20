@@ -465,7 +465,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
         }
 
 		int action=-1;
-		if(key->code == ABS_MT_POSITION_X)
+		if(key->code == ABS_MT_POSITION_X || key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN)
 	        action = device_handle_mouse(key, visible);
 		else if(!(key->code == BTN_GEAR_UP || key->code == BTN_MOUSE))
 	        action = device_handle_key(key->code, visible);
@@ -500,8 +500,12 @@ get_menu_selection(char** headers, char** items, int menu_only,
                     chosen_item = GO_BACK;
                     break;
             }
+        } else if (key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) {
+			selected = action;
+			selected = ui_menu_select(selected);
         } else if (!menu_only) {
-            chosen_item = action;
+			selected = action;
+            chosen_item = selected;
         }
     }
 
@@ -646,7 +650,17 @@ wipe_data(int confirm) {
     if (confirm) {
         static char** title_headers = NULL;
 
-        if (title_headers == NULL) {
+        if (!confirm_selection("Confirm wipe all user data?", "Yes-Wipe All Data"))
+        {
+			return;
+		}
+
+        if (!confirm_selection("Are you sure?", "Yes"))
+        {
+			return;
+		}
+
+  /*      if (title_headers == NULL) {
             char* headers[] = { "Confirm wipe of all user data?",
                                 "  THIS CAN NOT BE UNDONE.",
                                 "",
@@ -671,6 +685,7 @@ wipe_data(int confirm) {
         if (chosen_item != 7) {
             return;
         }
+*/
     }
 
     ui_print("\n-- Wiping data...\n");

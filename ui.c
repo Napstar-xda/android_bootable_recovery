@@ -475,6 +475,18 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 
 		position = key->x;
 
+if(TOUCH_CONTROL_DEBUG == 4 || TOUCH_CONTROL_DEBUG == 5)
+	if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
+		ui_print("Touch MENU_BACK\n");
+	else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
+		ui_print("Touch MENU_DOWN\n");
+	else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
+		ui_print("Touch MENU_UP\n");
+	else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
+		ui_print("Touch MENU_SELECT\n");
+	else
+		ui_print("Touch NO_ACTION\n");
+
 		if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
 			return GO_BACK;
 		else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
@@ -499,6 +511,12 @@ static void ui_handle_mouse_input(int* curPos)
 		{  get_menu_icon_info(MENU_UP,MENU_ICON_X),	get_menu_icon_info(MENU_UP,MENU_ICON_Y), get_menu_icon_info(MENU_UP,MENU_ICON_XL), get_menu_icon_info(MENU_UP,MENU_ICON_XR) },
 		{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
 	};
+
+if(TOUCH_CONTROL_DEBUG == 2)
+	ui_print("Touch gr_fb_width:\t%d,\tgr_fb_height:\t%d\n",gr_fb_width(),gr_fb_height());
+
+if(TOUCH_CONTROL_DEBUG == 3 || TOUCH_CONTROL_DEBUG == 5)
+	ui_print("Touch X:\t%d,\tY:\t%d\n",curPos[1],curPos[2]);
 
 
   if (show_menu) {
@@ -560,6 +578,12 @@ static int input_callback(int fd, short revents, void *data)
     if (touch_handle_input(fd, ev))
       return 0;
 #endif
+
+
+if(TOUCH_CONTROL_DEBUG == 1)
+	ui_print("Touch type:\t%d,\t code:\t%d,\t value:\t%d\n",ev.type,ev.code,ev.value);
+
+
 
     if (ev.type == EV_SYN) {
             // end of a multitouch point
@@ -1185,6 +1209,7 @@ struct keyStruct *ui_wait_key()
 		key.code = key_queue[0];
         memcpy(&key_queue[0], &key_queue[1], sizeof(int) * --key_queue_len);
     }
+
 
 	if((key.code == BTN_GEAR_UP || key.code == BTN_MOUSE) && !actPos.pressure && oldMousePos[actPos.num].pressure && key_queue_len_back != (key_queue_len -1))
 	{

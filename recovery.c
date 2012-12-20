@@ -470,6 +470,8 @@ get_menu_selection(char** headers, char** items, int menu_only,
 		else if(!(key->code == BTN_GEAR_UP || key->code == BTN_MOUSE))
 	        action = device_handle_key(key->code, visible);
 
+		if(TOUCH_CONTROL_DEBUG == 6)
+			ui_print("Returned action:\t%d & code:\t%d\n",action,key->code);
 
         int old_selected = selected;
         selected = ui_get_selected_item();

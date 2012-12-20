@@ -100,6 +100,8 @@ extern int ui_root_menu;
 #define MENU_ICON_XL		2
 #define MENU_ICON_XR		3
 
+extern int TOUCH_CONTROL_DEBUG;
+
 extern int resX;
 extern int resY;
 int get_menu_icon_info(int indx1, int indx2);

@@ -20,6 +20,19 @@
 #include "common.h"
 #include "extendedcommands.h"
 
+/*
+	to enable on-screen debug code printing set this to 1-6
+	to disable on-screen debug code printing set this to 0
+		TOUCH_CONTROL_DEBUG = 1  >>>>   Prints events code, type and value
+		TOUCH_CONTROL_DEBUG = 2  >>>>   Prints gr_fb_width() and gr_fb_height() values
+		TOUCH_CONTROL_DEBUG = 3  >>>>   Prints Touch X and Y co-ordinates
+		TOUCH_CONTROL_DEBUG = 4  >>>>   Prints Action issued by touch events
+		TOUCH_CONTROL_DEBUG = 5  >>>>   Prints Action issued for last two debugs
+		TOUCH_CONTROL_DEBUG = 6  >>>>   Prints Action returned to recovery.c through ui_wait_key()
+*/
+int TOUCH_CONTROL_DEBUG = 0;
+
+
 //Device specific boundaries for touch recognition
 /*
 	WARNING

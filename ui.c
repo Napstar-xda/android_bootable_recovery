@@ -76,7 +76,7 @@ static int gShowBackButton = 0;
 #define MENU_MAX_ROWS 250
 
 #define MIN_LOG_ROWS 3
-#define MIN_BLANK_ROWS 2
+#define MIN_BLANK_ROWS 3
 
 #define CHAR_WIDTH BOARD_RECOVERY_CHAR_WIDTH
 #define CHAR_HEIGHT BOARD_RECOVERY_CHAR_HEIGHT
@@ -198,9 +198,17 @@ static struct mousePosStruct {
   int num;
   int length; // length of the line drawn while in touch state
   int Xlength; // length of the line drawn along X axis while in touch state
-} actPos, grabPos, oldMousePos[MAX_MT_POINTS], mousePos[MAX_MT_POINTS];
+} actPos, grabPos, oldMousePos[MAX_MT_POINTS], mousePos[MAX_MT_POINTS], backupPos;
 //Struct to return key events to recovery.c through ui_wait_key()
 volatile struct keyStruct key;
+
+#ifdef BOARD_TOUCH_RECOVERY
+#include "../../vendor/koush/recovery/touch.c"
+#else
+#ifdef BOARD_RECOVERY_SWIPE
+#include "swipe.c"
+#endif
+#endif
 
 // Return the current time as a double (including fractions of a second).
 static double now() {
@@ -355,6 +363,8 @@ static void draw_screen_locked(void)
 		int rowOffset = 0;		// Offset to adjust row number after adding graphical touch buttons
         int offset = 0;         // offset of separating bar under menus
         int row = 0;            // current row that we are drawing on
+
+#ifndef BOARD_TOUCH_RECOVERY
         if (show_menu) {
 
 			draw_icon_locked(gMenuIcon[MENU_BACK], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
@@ -373,9 +383,9 @@ static void draw_screen_locked(void)
             }
 
             if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-                j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1;
+                j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
             else
-                j = menu_items - menu_show_start - 1;
+                j = menu_items - menu_show_start;
 
 			rowOffset = menu_top*CHAR_HEIGHT-MENU_CENTER;		//Offset for printing menu text. 1/3rd of menu height so as to consider proper text placing inside button based on graphic shape.
             gr_color(MENU_TEXT_COLOR);
@@ -390,7 +400,7 @@ static void draw_screen_locked(void)
 				                else
 				                {
 				                    draw_text_line(i - menu_show_start - menu_top , menu[i]+1, rowOffset-CHAR_HEIGHT/2, isMenu, MENU_ITEM_LEFT_OFFSET);
-				                    draw_text_line(i - menu_show_start - menu_top , submenu[i], rowOffset+CHAR_HEIGHT/2, isMenu, MENU_ITEM_LEFT_OFFSET);    
+				                    draw_text_line(i - menu_show_start - menu_top , submenu[i], rowOffset+CHAR_HEIGHT/2, isMenu, MENU_ITEM_LEFT_OFFSET);
 				                }
 				                	
 					}
@@ -449,7 +459,7 @@ static void draw_screen_locked(void)
 
 			if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
 			{
-				if((BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1)%2 == 0)
+				if((BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top))%2 == 0)
 					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2);
 				else
 					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_LOWHALF], resX/2, menu_top*CHAR_HEIGHT + (i - menu_show_start - menu_top + 1)*MENU_INCREMENT - MENU_INCREMENT/2);
@@ -463,7 +473,11 @@ static void draw_screen_locked(void)
 		rowOffset = menu_top*CHAR_HEIGHT + (row - menu_top + 2)*MENU_INCREMENT;
 		if(row == 0)
 			rowOffset=0;
-
+#else
+        if (show_menu) {
+            row = draw_touch_menu(menu, menu_items, menu_top, menu_sel, menu_show_start);
+        }
+#endif
         gr_color(NORMAL_TEXT_COLOR);
         int cur_row = text_row;
         int available_rows = total_rows - (rowOffset/CHAR_HEIGHT) - 1;
@@ -588,34 +602,38 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 		else if((key->y < (resY - MENU_MAX_HEIGHT)) &&  (key->length < 0.1*resY))
 		{
 		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1;
-    		else
-    			j = menu_items - menu_show_start - 1;
-		
+			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+		else
+			j = menu_items - menu_show_start;
+
 			int rowOffset = menu_top*CHAR_HEIGHT;
 
 			int sel_menu;
-			if(key->x < resX/2)
+			if(key->x < resX/2 && key->y >= rowOffset)
 			{
 				sel_menu = (int)((key->y - rowOffset)/MENU_HEIGHT );
 				sel_menu = sel_menu*2;
 			}
-			else
+			else if(key->x >= resX/2 && key->y >= (rowOffset + MENU_INCREMENT))
 			{
 				sel_menu = (int)((key->y - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
 				sel_menu = sel_menu*2 + 1;
 			}
+			else
+				return -1;
 
-			if(key->y > rowOffset && key->y < rowOffset + j*MENU_INCREMENT)
-			{	
+			if(key->y > rowOffset && key->y < rowOffset + (j+1)*MENU_INCREMENT)
+			{
 				selMenuButtonIcon = -1;
 				if(sel_menu+menu_show_start < 0)
 					return 0;
+				if (sel_menu == j)
+					return -1;
 
 				return sel_menu+menu_show_start;
 			}
 		}
-		else if((key->y > (resY - MENU_MAX_HEIGHT))  &&  (key->length < 0.1*resY)) 
+		else if((key->y > (resY - MENU_MAX_HEIGHT))  &&  (key->length < 0.1*resY))
 		{
 
 //ToDo: Following structure should be global
@@ -628,6 +646,18 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 		int position;
 
 		position = key->x;
+
+if(TOUCH_CONTROL_DEBUG == 4 || TOUCH_CONTROL_DEBUG == 5)
+	if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
+		ui_print("Touch MENU_BACK\n");
+	else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
+		ui_print("Touch MENU_DOWN\n");
+	else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
+		ui_print("Touch MENU_UP\n");
+	else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
+		ui_print("Touch MENU_SELECT\n");
+	else
+		ui_print("Touch NO_ACTION\n");
 
 		if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
 			return GO_BACK;
@@ -655,11 +685,12 @@ static void ui_handle_mouse_input(int* curPos)
 		{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
 	};
 
-if(TOUCH_CONTROL_DEBUG)
-{
-	ui_print("Touch gr_fb_width:\t%d,\tgr_fb_height:\t%d\n",resX,resY);
+if(TOUCH_CONTROL_DEBUG == 2)
+	ui_print("Touch gr_fb_width:\t%d,\tgr_fb_height:\t%d\n",gr_fb_width(),gr_fb_height());
+
+if(TOUCH_CONTROL_DEBUG == 3 || TOUCH_CONTROL_DEBUG == 5)
 	ui_print("Touch X:\t%d,\tY:\t%d\n",curPos[1],curPos[2]);
-}
+
 
   if (show_menu) {
     if (curPos[0] > 0) {
@@ -673,28 +704,30 @@ if(TOUCH_CONTROL_DEBUG)
 			int j=0;
 	
 		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-    			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top) - 1;
-    		else
-    			j = menu_items - menu_show_start - 1;
-		
+			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+		else
+			j = menu_items - menu_show_start;
+
 			int rowOffset = menu_top*CHAR_HEIGHT;
 			int sel_menu;
-			if(positionX < resX/2)
+			if(positionX < resX/2 && positionY >= rowOffset)
 			{
 				sel_menu = (int)((positionY - rowOffset)/MENU_HEIGHT );
 				sel_menu = sel_menu*2;
 			}
-			else
+			else if(positionX >= resX/2 && positionY >= (rowOffset + MENU_INCREMENT))
 			{
 				sel_menu = (int)((positionY - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
 				sel_menu = sel_menu*2 + 1;
 			}
+			else
+				sel_menu = -1;
 
 			if(selMenuButtonIcon < 0)
 				selMenuButtonIcon = 0;
 
-			if(positionY > rowOffset && positionY < rowOffset + j*MENU_INCREMENT && selMenuButtonIcon != sel_menu)
-			{	
+			if(positionY > rowOffset && positionY < rowOffset + (j+1)*MENU_INCREMENT && selMenuButtonIcon != sel_menu && sel_menu != j && sel_menu >= 0)
+			{
 				if (sel_menu %2 == 0)
 				{
 					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
@@ -757,20 +790,20 @@ if(TOUCH_CONTROL_DEBUG)
 				selMenuIcon = MENU_BACK;
 				gr_flip();
 			}
-			else if(positionX > MENU_ICON[MENU_DOWN].xL && positionX < MENU_ICON[MENU_DOWN].xR) {			
+			else if(positionX > MENU_ICON[MENU_DOWN].xL && positionX < MENU_ICON[MENU_DOWN].xR) {
 				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
 				draw_icon_locked(gMenuIcon[MENU_DOWN_M], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
 				selMenuIcon = MENU_DOWN;
 				gr_flip();
 			}
 			else if(positionX > MENU_ICON[MENU_UP].xL && positionX < MENU_ICON[MENU_UP].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);			
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
 				draw_icon_locked(gMenuIcon[MENU_UP_M], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
 				selMenuIcon = MENU_UP;
 				gr_flip();
 			}
 			else if(positionX > MENU_ICON[MENU_SELECT].xL && positionX < MENU_ICON[MENU_SELECT].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);			
+				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
 				draw_icon_locked(gMenuIcon[MENU_SELECT_M], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
 				selMenuIcon = MENU_SELECT;
 				gr_flip();
@@ -797,9 +830,44 @@ static int input_callback(int fd, short revents, void *data)
     if (ret)
         return -1;
 
+#ifdef BOARD_TOUCH_RECOVERY
+    if (touch_handle_input(fd, ev))
+        return 0;
+#else
+#ifdef BOARD_RECOVERY_SWIPE
+    swipe_handle_input(fd, &ev);
+#endif
+#endif
+
+
+if(TOUCH_CONTROL_DEBUG == 1)
+	ui_print("Touch type:\t%d,\t code:\t%d,\t value:\t%d\n",ev.type,ev.code,ev.value);
+
+
+
     if (ev.type == EV_SYN) {
             // end of a multitouch point
-            if (ev.code == SYN_MT_REPORT) {
+            if (ev.code == SYN_REPORT) {
+			  //For problems with Nexus4 for detecting '0' pressure, use of ABS_MT_TRACKING_ID value.
+			  //when it's value is -1, touch discontinued so set pressure to '0'.
+			  if(actPos.num < 0 && actPos.x == 0 && actPos.y == 0)
+			  {
+				actPos.pressure = 0;
+				actPos.num = 0;
+			  }
+			  else
+				actPos.pressure = 1;
+
+			  //For problems with Nexus4 with synchronous
+			  if(actPos.x != 0)
+				backupPos.x = actPos.x;
+			  else
+				actPos.x = backupPos.x;
+			  if(actPos.y != 0)
+				backupPos.y = actPos.y;
+			  else
+				actPos.y = backupPos.y;
+
               if (actPos.num>=0 && actPos.num<MAX_MT_POINTS) {
                 // create a fake keyboard event. We will use BTN_WHEEL, BTN_GEAR_DOWN and BTN_GEAR_UP key events to fake
                 // TOUCH_MOVE, TOUCH_DOWN and TOUCH_UP in this order
@@ -832,30 +900,30 @@ static int input_callback(int fd, short revents, void *data)
                 if (actPos.pressure) {
                   if (mousePos[actPos.num].pressure) {
                     actPos.length = mousePos[actPos.num].length + abs(mousePos[actPos.num].x-actPos.x) + abs(mousePos[actPos.num].y-actPos.y);
-				  	if ( ((mousePos[actPos.num].x-actPos.x) < 0 && mousePos[actPos.num].Xlength > 0) || ((mousePos[actPos.num].x-actPos.x) > 0 && mousePos[actPos.num].Xlength < 0))
-				  	{
+					if ( ((mousePos[actPos.num].x-actPos.x) < 0 && mousePos[actPos.num].Xlength > 0) || ((mousePos[actPos.num].x-actPos.x) > 0 && mousePos[actPos.num].Xlength < 0))
+					{
 						actPos.Xlength = mousePos[actPos.num].x-actPos.x;
 					}
 					else
-				  	{
-				  		actPos.Xlength = mousePos[actPos.num].Xlength + mousePos[actPos.num].x-actPos.x;
-				  	}
+					{
+						actPos.Xlength = mousePos[actPos.num].Xlength + mousePos[actPos.num].x-actPos.x;
+					}
                   } else {
                     actPos.length = 0;
                     actPos.Xlength = 0;
                   }
                 } else {
 					if (abs(mousePos[actPos.num].Xlength) > (0.1*resX))
-				  	{
-				  		if (mousePos[actPos.num].Xlength > 0)
-				  		{
-				  			ev.code = KEY_SCROLLDOWN;
-				  		}
-				  		else
-				  		{
-				  			ev.code = KEY_SCROLLUP;
-				  		}
-				  	}
+					{
+						if (mousePos[actPos.num].Xlength > 0)
+						{
+							ev.code = KEY_SCROLLDOWN;
+						}
+						else
+						{
+							ev.code = KEY_SCROLLUP;
+						}
+					}
                   actPos.length = 0;
                   actPos.Xlength = 0;
                 }
@@ -950,7 +1018,7 @@ static int input_callback(int fd, short revents, void *data)
     const int queue_max = sizeof(key_queue) / sizeof(key_queue[0]);
     if (ev.value > 0 && key_queue_len < queue_max) {
           // we don't want to pollute the queue with mouse move events
-          if (ev.code!=BTN_WHEEL || key_queue_len==0 || key_queue[key_queue_len-1]!=BTN_WHEEL) {
+          if (ev.code!=BTN_WHEEL && ev.code!=BTN_GEAR_DOWN ) {
 			key_queue[key_queue_len++] = ev.code;
 		  }
 
@@ -996,10 +1064,16 @@ void ui_init(void)
     ui_has_initialized = 1;
     gr_init();
     ev_init(input_callback, NULL);
+#ifdef BOARD_TOUCH_RECOVERY
+    touch_init();
+#endif
 
     text_col = text_row = 0;
     text_rows = gr_fb_height() / CHAR_HEIGHT;
     max_menu_rows = text_rows - MIN_LOG_ROWS;
+#ifdef BOARD_TOUCH_RECOVERY
+    max_menu_rows = get_max_menu_rows(max_menu_rows);
+#endif
     if (max_menu_rows > MENU_MAX_ROWS)
         max_menu_rows = MENU_MAX_ROWS;
     if (text_rows > MAX_ROWS) text_rows = MAX_ROWS;
@@ -1272,18 +1346,17 @@ int ui_start_menu(char** headers, char** items, int initial_selection) {
         menu_top = i;
         for (; i < MENU_MAX_ROWS; ++i) {
             if (items[i-menu_top] == NULL) break;
-            if (strlen(items[i-menu_top]) > ALLOWED_CHAR )			//Here "resX*0.4" is the maximum menu text length in each column. 
+            if (strlen(items[i-menu_top]) > ALLOWED_CHAR )			//Here "resX*0.4" is the maximum menu text length in each column.
 		{
 		    strcpy(menu[i], MENU_ITEM_HEADER);
-		    strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top], ALLOWED_CHAR - 2*MENU_ITEM_HEADER_LENGTH);
-		    strcpy(menu[i] - MENU_ITEM_HEADER_LENGTH + ALLOWED_CHAR, MENU_ITEM_HEADER);
+		    strncpy(menu[i] + MENU_ITEM_HEADER_LENGTH, items[i-menu_top], ALLOWED_CHAR - MENU_ITEM_HEADER_LENGTH);
 		    if(strlen(items[i-menu_top]) > (2*ALLOWED_CHAR - 1) )
 		    {
-		    	strncpy(submenu[i], items[i-menu_top] + ALLOWED_CHAR - 2*MENU_ITEM_HEADER_LENGTH, ALLOWED_CHAR-3);
-		    	strcpy(submenu[i] + ALLOWED_CHAR-3, "..." );
+			strncpy(submenu[i], items[i-menu_top] + ALLOWED_CHAR - MENU_ITEM_HEADER_LENGTH, ALLOWED_CHAR-3);
+			strcpy(submenu[i] + ALLOWED_CHAR-3, "..." );
 		    }
 		    else
-		    	strncpy(submenu[i], items[i-menu_top] + ALLOWED_CHAR - 2*MENU_ITEM_HEADER_LENGTH, MENU_MAX_COLS-1 - 2*MENU_ITEM_HEADER_LENGTH);
+			strncpy(submenu[i], items[i-menu_top] + ALLOWED_CHAR - MENU_ITEM_HEADER_LENGTH, MENU_MAX_COLS-1 - MENU_ITEM_HEADER_LENGTH);
 		}
 		else
 		{
@@ -1292,6 +1365,8 @@ int ui_start_menu(char** headers, char** items, int initial_selection) {
             menu[i][MENU_MAX_COLS-1] = '\0';
         }
 
+//For time being, hardcoded gShowBackButton disable for UCtouch recovery
+		gShowBackButton = 0;
         if (gShowBackButton && !ui_root_menu) {
             strcpy(menu[i], " - +++++Go Back+++++");
             ++i;
@@ -1422,11 +1497,9 @@ struct keyStruct *ui_wait_key()
         memcpy(&key_queue[0], &key_queue[1], sizeof(int) * --key_queue_len);
     }
 
-if(TOUCH_CONTROL_DEBUG)
-	ui_print("[UI_WAIT_KEY] key code:\t%d\n",key.code);
 
 	if((key.code == BTN_GEAR_UP || key.code == BTN_MOUSE) && !actPos.pressure && oldMousePos[actPos.num].pressure && key_queue_len_back != (key_queue_len -1))
-	{	
+	{
 		key.code = ABS_MT_POSITION_X;
 		key.x = oldMousePos[actPos.num].x;
 		key.y = oldMousePos[actPos.num].y;
@@ -1435,7 +1508,7 @@ if(TOUCH_CONTROL_DEBUG)
 	key.length = oldMousePos[actPos.num].length;
 	key.Xlength = oldMousePos[actPos.num].Xlength;
     pthread_mutex_unlock(&key_queue_mutex);
-	return &key;
+    return &key;
 }
 
 // util for ui_wait_key_with_repeat
@@ -1555,7 +1628,9 @@ void ui_set_showing_back_button(int showBackButton) {
 }
 
 int ui_get_showing_back_button() {
-    return gShowBackButton;
+//For time being, hardcoded this to allow power button selection for UCtouch recovery
+//    return gShowBackButton;
+    return 1;
 }
 
 int ui_is_showing_back_button() {

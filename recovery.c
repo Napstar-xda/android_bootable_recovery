@@ -43,6 +43,7 @@
 
 #include "extendedcommands.h"
 #include "flashutils/flashutils.h"
+#include "dedupe/dedupe.h"
 
 #define ABS_MT_POSITION_X 0x35  /* Center X ellipse position */
 #define ABS_MT_POSITION_Y 0x36  /* Center Y ellipse position */
@@ -62,7 +63,7 @@ static const char *LOG_FILE = "/cache/recovery/log";
 static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
 static const char *CACHE_ROOT = "/cache";
 static const char *SDCARD_ROOT = "/sdcard";
-static int allow_display_toggle = 1;
+static int allow_display_toggle = 0;
 static int poweroff = 0;
 static const char *SDCARD_PACKAGE_FILE = "/sdcard/update.zip";
 static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
@@ -434,7 +435,6 @@ get_menu_selection(char** headers, char** items, int menu_only,
     // accidentally trigger menu items.
     ui_clear_key_queue();
     
-    ++ui_menu_level;
     int item_count = ui_start_menu(headers, items, initial_selection);
     int selected = initial_selection;
     int chosen_item = -1;
@@ -460,12 +460,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
             }
         }
 
-		int action;
-		if(key->code == ABS_MT_POSITION_X || key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN)
-	        action = device_handle_mouse(key, visible);
-		else
-	        action = device_handle_key(key->code, visible);
-
+        int action = device_handle_key(key, visible);
 
         int old_selected = selected;
 
@@ -495,15 +490,10 @@ get_menu_selection(char** headers, char** items, int menu_only,
                     chosen_item = GO_BACK;
                     break;
             }
-        } else if (key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) {
-			selected = action;
-			selected = ui_menu_select(selected);
         } else if (!menu_only) {
-			selected = action;
-            chosen_item = selected;
+            chosen_item = action;
         }
 
-/*
         if (abs(selected - old_selected) > 1) {
             wrap_count++;
             if (wrap_count == 3) {
@@ -518,7 +508,6 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 }
             }
         }
-*/
     }
 
     ui_end_menu();
@@ -662,17 +651,7 @@ wipe_data(int confirm) {
     if (confirm) {
         static char** title_headers = NULL;
 
-        if (!confirm_selection("Confirm wipe all user data?", "Yes-Wipe All Data"))
-        {
-			return;
-		}
-
-        if (!confirm_selection("Are you sure?", "Yes"))
-        {
-			return;
-		}
-
-  /*      if (title_headers == NULL) {
+        if (title_headers == NULL) {
             char* headers[] = { "Confirm wipe of all user data?",
                                 "  THIS CAN NOT BE UNDONE.",
                                 "",
@@ -697,7 +676,6 @@ wipe_data(int confirm) {
         if (chosen_item != 7) {
             return;
         }
-*/
     }
 
     ui_print("\n-- Wiping data...\n");

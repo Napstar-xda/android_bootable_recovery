@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 The Android Open Source Project
+ * By Seth Shelnutt
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,21 +14,16 @@
  * limitations under the License.
  */
 
-#ifndef _UPDATER_UPDATER_H_
-#define _UPDATER_UPDATER_H_
+#define Loki_Image "/tmp/loki_image"
+#define BOOT_PARTITION "/dev/block/platform/msm_sdcc.1/by-name/boot"
+#define RECOVERY_PARTITION "/dev/block/platform/msm_sdcc.1/by-name/recovery"
 
-#include <stdio.h>
-#include "minzip/Zip.h"
+int loki_patch_shellcode(unsigned int addr);
 
-#include <selinux/selinux.h>
-#include <selinux/label.h>
+int loki_patch(char *partition, char *partitionPath);
 
-typedef struct {
-    FILE* cmd_pipe;
-    ZipArchive* package_zip;
-    int version;
-} UpdaterInfo;
+int loki_flash(char *partition);
 
-extern struct selabel_handle *sehandle;
+int loki_check_partition(char *partition);
 
-#endif
+int loki_check();

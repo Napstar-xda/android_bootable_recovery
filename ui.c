@@ -33,6 +33,7 @@
 #include <cutils/properties.h>
 #include "minui/minui.h"
 #include "recovery_ui.h"
+#include "voldclient/voldclient.h"
 
 
 //these are included in the original kernel's linux/input.h but are missing from AOSP
@@ -111,6 +112,7 @@ static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gBackgroundIcon[BACKGROUND_ICON_INSTALLING], "icon_installing" },
     { &gBackgroundIcon[BACKGROUND_ICON_ERROR],      "icon_error" },
     { &gBackgroundIcon[BACKGROUND_ICON_CLOCKWORK],  "icon_clockwork" },
+    { &gBackgroundIcon[BACKGROUND_ICON_CID],  "icon_cid" },
     { &gBackgroundIcon[BACKGROUND_ICON_FIRMWARE_INSTALLING], "icon_firmware_install" },
     { &gBackgroundIcon[BACKGROUND_ICON_FIRMWARE_ERROR], "icon_firmware_error" },
 	{ &gMenuIcon[MENU_BACK],      "icon_back" },
@@ -165,6 +167,9 @@ static int menu_top = 0, menu_items = 0, menu_sel = 0;
 static int menu_show_start = 0;             // this is line which menu display is starting at
 static int max_menu_rows;
 
+static int cur_rainbow_color = 0;
+static int gRainbowMode = 0;
+
 // Key event input queue
 static pthread_mutex_t key_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t key_queue_cond = PTHREAD_COND_INITIALIZER;
@@ -198,6 +203,10 @@ volatile struct keyStruct key;
 
 #ifdef BOARD_TOUCH_RECOVERY
 #include "../../vendor/koush/recovery/touch.c"
+#else
+#ifdef BOARD_RECOVERY_SWIPE
+#include "swipe.c"
+#endif
 #endif
 
 // Return the current time as a double (including fractions of a second).
@@ -312,6 +321,7 @@ static void draw_progress_locked()
 
 static void draw_text_line(int row, const char* t, int rowOffset, int isMenu, int xOffset) {
   if (t[0] != '\0') {
+    if (ui_get_rainbow_mode()) ui_rainbow_mode();
     if (isMenu == 1)
 		gr_text(xOffset, rowOffset + (row+1)*MENU_INCREMENT-1+(MENU_HEIGHT/2), t);
 	else
@@ -816,9 +826,12 @@ static int input_callback(int fd, short revents, void *data)
 
 #ifdef BOARD_TOUCH_RECOVERY
     if (touch_handle_input(fd, ev))
-      return 0;
+        return 0;
+#else
+#ifdef BOARD_RECOVERY_SWIPE
+    swipe_handle_input(fd, &ev);
 #endif
-
+#endif
 
 if(TOUCH_CONTROL_DEBUG == 1)
 	ui_print("Touch type:\t%d,\t code:\t%d,\t value:\t%d\n",ev.type,ev.code,ev.value);
@@ -1023,7 +1036,7 @@ if(TOUCH_CONTROL_DEBUG == 1)
     }
 
     if (ev.value > 0 && device_reboot_now(key_pressed, ev.code)) {
-        android_reboot(ANDROID_RB_RESTART, 0, 0);
+        reboot_main_system(ANDROID_RB_RESTART, 0, 0);
     }
 
     return 0;
@@ -1100,9 +1113,9 @@ void ui_init(void)
         // base image on the screen.
         if (gBackgroundIcon[BACKGROUND_ICON_INSTALLING] != NULL) {
             gr_surface bg = gBackgroundIcon[BACKGROUND_ICON_INSTALLING];
-            ui_parameters.install_overlay_offset_x +=
+            ui_parameters.install_overlay_offset_x =
                 (gr_fb_width() - gr_get_width(bg)) / 2;
-            ui_parameters.install_overlay_offset_y +=
+            ui_parameters.install_overlay_offset_y =
                 (gr_fb_height() - gr_get_height(bg)) / 2;
         }
     } else {
@@ -1308,7 +1321,7 @@ void ui_printlogtail(int nb_lines) {
 #define MENU_ITEM_HEADER_LENGTH strlen(MENU_ITEM_HEADER)
 #define ALLOWED_CHAR (int)(resX*0.4)/CHAR_WIDTH
 
-int ui_start_menu(char** headers, char** items, int initial_selection) {
+int ui_start_menu(const char** headers, char** items, int initial_selection) {
     int i,j;
 	int remChar;
 	selMenuButtonIcon=0;
@@ -1445,28 +1458,46 @@ static int usb_connected() {
     return connected;
 }
 
+void ui_cancel_wait_key() {
+    pthread_mutex_lock(&key_queue_mutex);
+    key_queue[key_queue_len] = -2;
+    key_queue_len++;
+    pthread_cond_signal(&key_queue_cond);
+    pthread_mutex_unlock(&key_queue_mutex);
+}
+
+extern int volumes_changed();
+
+// delay in seconds to refresh clock and USB plugged volumes
+#define REFRESH_TIME_USB_INTERVAL 5
 struct keyStruct *ui_wait_key()
 {
     if (boardEnableKeyRepeat) return ui_wait_key_with_repeat();
     pthread_mutex_lock(&key_queue_mutex);
+    int timeouts = UI_WAIT_KEY_TIMEOUT_SEC;
 	key.code = -1;
 
-    // Time out after UI_WAIT_KEY_TIMEOUT_SEC, unless a USB cable is
-    // plugged in.
+    // Time out after REFRESH_TIME_USB_INTERVAL seconds to catch volume changes, and loop for
+    // UI_WAIT_KEY_TIMEOUT_SEC to restart a device not connected to USB
     do {
         struct timeval now;
         struct timespec timeout;
         gettimeofday(&now, NULL);
         timeout.tv_sec = now.tv_sec;
         timeout.tv_nsec = now.tv_usec * 1000;
-        timeout.tv_sec += UI_WAIT_KEY_TIMEOUT_SEC;
+        timeout.tv_sec += REFRESH_TIME_USB_INTERVAL;
 
         int rc = 0;
         while (key_queue_len == 0 && rc != ETIMEDOUT) {
             rc = pthread_cond_timedwait(&key_queue_cond, &key_queue_mutex,
                                         &timeout);
+            if (volumes_changed()) {
+                pthread_mutex_unlock(&key_queue_mutex);
+                return REFRESH;
+            }
         }
-    } while (usb_connected() && key_queue_len == 0);
+        timeouts -= REFRESH_TIME_USB_INTERVAL;
+    } while ((timeouts > 0 || usb_connected()) && key_queue_len == 0);
 
     if (key_queue_len > 0) {
 		key.code = key_queue[0];
@@ -1506,20 +1537,30 @@ int ui_wait_key_with_repeat()
 
     // Loop to wait for more keys.
     do {
+        int timeouts = UI_WAIT_KEY_TIMEOUT_SEC;
+        int rc = 0;
         struct timeval now;
         struct timespec timeout;
-        gettimeofday(&now, NULL);
-        timeout.tv_sec = now.tv_sec;
-        timeout.tv_nsec = now.tv_usec * 1000;
-        timeout.tv_sec += UI_WAIT_KEY_TIMEOUT_SEC;
-
-        int rc = 0;
         pthread_mutex_lock(&key_queue_mutex);
-        while (key_queue_len == 0 && rc != ETIMEDOUT) {
-            rc = pthread_cond_timedwait(&key_queue_cond, &key_queue_mutex,
-                                        &timeout);
+        while (key_queue_len == 0 && timeouts > 0) {
+            gettimeofday(&now, NULL);
+            timeout.tv_sec = now.tv_sec;
+            timeout.tv_nsec = now.tv_usec * 1000;
+            timeout.tv_sec += REFRESH_TIME_USB_INTERVAL;
+
+            rc = 0;
+            while (key_queue_len == 0 && rc != ETIMEDOUT) {
+                rc = pthread_cond_timedwait(&key_queue_cond, &key_queue_mutex,
+                                            &timeout);
+                if (volumes_changed()) {
+                    pthread_mutex_unlock(&key_queue_mutex);
+                    return REFRESH;
+                }
+            }
+            timeouts -= REFRESH_TIME_USB_INTERVAL;
         }
         pthread_mutex_unlock(&key_queue_mutex);
+
         if (rc == ETIMEDOUT && !usb_connected()) {
             return -1;
         }
@@ -1594,6 +1635,15 @@ void ui_clear_key_queue() {
     pthread_mutex_unlock(&key_queue_mutex);
 }
 
+void ui_set_log_stdout(int enabled) {
+    ui_log_stdout = enabled;
+}
+
+int ui_should_log_stdout()
+{
+    return ui_log_stdout;
+}
+
 void ui_set_show_text(int value) {
     show_text = value;
 }
@@ -1636,3 +1686,29 @@ void ui_increment_frame() {
     gInstallingFrame =
         (gInstallingFrame + 1) % ui_parameters.installing_frames;
 }
+
+int ui_get_rainbow_mode() {
+    return gRainbowMode;
+}
+
+void ui_rainbow_mode() {
+    static int colors[] = { 255, 0, 0,        // red
+                            255, 127, 0,      // orange
+                            255, 255, 0,      // yellow
+                            0, 255, 0,        // green
+                            60, 80, 255,      // blue
+                            143, 0, 255 };    // violet
+
+    gr_color(colors[cur_rainbow_color], colors[cur_rainbow_color+1], colors[cur_rainbow_color+2], 255);
+    cur_rainbow_color += 3;
+    if (cur_rainbow_color >= sizeof(colors)/sizeof(colors[0])) cur_rainbow_color = 0;
+}
+
+void ui_set_rainbow_mode(int rainbowMode) {
+    gRainbowMode = rainbowMode;
+
+    pthread_mutex_lock(&gUpdateMutex);
+    update_screen_locked();
+    pthread_mutex_unlock(&gUpdateMutex);
+}
+

@@ -41,12 +41,18 @@
 #include "roots.h"
 #include "recovery_ui.h"
 
+#include "voldclient/voldclient.h"
+
 #include "adb_install.h"
 #include "minadbd/adb.h"
 
+#include "firmware.h"
 #include "extendedcommands.h"
 #include "flashutils/flashutils.h"
 #include "dedupe/dedupe.h"
+#include "voldclient/voldclient.h"
+
+#include "recovery_cmds.h"
 
 struct selabel_handle *sehandle = NULL;
 #define ABS_MT_POSITION_X 0x35  /* Center X ellipse position */
@@ -55,21 +61,22 @@ struct selabel_handle *sehandle = NULL;
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
   { "update_package", required_argument, NULL, 'u' },
+  { "headless", no_argument, NULL, 'h' },
   { "wipe_data", no_argument, NULL, 'w' },
   { "wipe_cache", no_argument, NULL, 'c' },
   { "show_text", no_argument, NULL, 't' },
+  { "sideload", no_argument, NULL, 'l' },
   { NULL, 0, NULL, 0 },
 };
+
+#define LAST_LOG_FILE "/cache/recovery/last_log"
 
 static const char *COMMAND_FILE = "/cache/recovery/command";
 static const char *INTENT_FILE = "/cache/recovery/intent";
 static const char *LOG_FILE = "/cache/recovery/log";
-static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
 static const char *CACHE_ROOT = "/cache";
 static const char *SDCARD_ROOT = "/sdcard";
 static int allow_display_toggle = 0;
-static int poweroff = 0;
-static const char *SDCARD_PACKAGE_FILE = "/sdcard/update.zip";
 static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
 static const char *SIDELOAD_TEMP_DIR = "/tmp/sideload";
 
@@ -204,6 +211,7 @@ get_args(int *argc, char ***argv) {
     if (*argc <= 1) {
         FILE *fp = fopen_path(COMMAND_FILE, "r");
         if (fp != NULL) {
+            char *token;
             char *argv0 = (*argv)[0];
             *argv = (char **) malloc(sizeof(char *) * MAX_ARGS);
             (*argv)[0] = argv0;  // use the same program name
@@ -211,7 +219,12 @@ get_args(int *argc, char ***argv) {
             char buf[MAX_ARG_LENGTH];
             for (*argc = 1; *argc < MAX_ARGS; ++*argc) {
                 if (!fgets(buf, sizeof(buf), fp)) break;
-                (*argv)[*argc] = strdup(strtok(buf, "\r\n"));  // Strip newline.
+                token = strtok(buf, "\r\n");
+                if (token != NULL) {
+                    (*argv)[*argc] = strdup(token);  // Strip newline.
+                } else {
+                    --*argc;
+                }
             }
 
             check_and_fclose(fp, COMMAND_FILE);
@@ -267,6 +280,21 @@ copy_log_file(const char* destination, int append) {
     }
 }
 
+// Rename last_log -> last_log.1 -> last_log.2 -> ... -> last_log.$max
+// Overwrites any existing last_log.$max.
+static void
+rotate_last_logs(int max) {
+    char oldfn[256];
+    char newfn[256];
+
+    int i;
+    for (i = max-1; i >= 0; --i) {
+        snprintf(oldfn, sizeof(oldfn), (i==0) ? LAST_LOG_FILE : (LAST_LOG_FILE ".%d"), i);
+        snprintf(newfn, sizeof(newfn), LAST_LOG_FILE ".%d", i+1);
+        // ignore errors
+        rename(oldfn, newfn);
+    }
+}
 
 // clear the recovery command and prepare to boot a (hopefully working) system,
 // copy our log file to cache as well (for the system to read), and
@@ -410,21 +438,21 @@ copy_sideloaded_package(const char* original_path) {
   return strdup(copy_path);
 }
 
-static char**
-prepend_title(char** headers) {
-    char* title[] = { EXPAND(RECOVERY_VERSION),
+static const char**
+prepend_title(const char** headers) {
+    const char* title[] = { EXPAND(RECOVERY_VERSION),
                       "",
                       NULL };
 
     // count the number of lines in our title, plus the
     // caller-provided headers.
     int count = 0;
-    char** p;
+    const char** p;
     for (p = title; *p; ++p, ++count);
     for (p = headers; *p; ++p, ++count);
 
-    char** new_headers = malloc((count+1) * sizeof(char*));
-    char** h = new_headers;
+    const char** new_headers = malloc((count+1) * sizeof(const char*));
+    const char** h = new_headers;
     for (p = title; *p; ++p, ++h) *h = *p;
     for (p = headers; *p; ++p, ++h) *h = *p;
     *h = NULL;
@@ -433,28 +461,22 @@ prepend_title(char** headers) {
 }
 
 int
-get_menu_selection(char** headers, char** items, int menu_only,
+get_menu_selection(const char** headers, char** items, int menu_only,
                    int initial_selection) {
     // throw away keys pressed previously, so user doesn't
     // accidentally trigger menu items.
     ui_clear_key_queue();
-    
+
     int item_count = ui_start_menu(headers, items, initial_selection);
     int selected = initial_selection;
-    int chosen_item = -1;
-
-    // Some users with dead enter keys need a way to turn on power to select.
-    // Jiggering across the wrapping menu is one "secret" way to enable it.
-    // We can't rely on /cache or /sdcard since they may not be available.
+    int chosen_item = -1; // NO_ACTION
     int wrap_count = 0;
 
     while (chosen_item < 0 && chosen_item != GO_BACK) {
-		struct keyStruct *key;
-		key = ui_wait_key();
-
+        int key = ui_wait_key();
         int visible = ui_text_visible();
 
-        if (key->code == -1) {   // ui_wait_key() timed out
+        if (key == -1) {   // ui_wait_key() timed out
             if (ui_text_ever_visible()) {
                 continue;
             } else {
@@ -462,6 +484,12 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 ui_end_menu();
                 return ITEM_REBOOT;
             }
+        }
+        else if (key == -2) {   // we are returning from ui_cancel_wait_key(): trigger a GO_BACK
+            return GO_BACK;
+        }
+        else if (key == -3) {   // an USB device was plugged in (returning from ui_wait_key())
+            return REFRESH;
         }
 
 		int action=-1;
@@ -507,6 +535,21 @@ get_menu_selection(char** headers, char** items, int menu_only,
 			selected = action;
             chosen_item = selected;
         }
+
+        if (abs(selected - old_selected) > 1) {
+            wrap_count++;
+            if (wrap_count == 5) {
+                wrap_count = 0;
+                if (ui_get_rainbow_mode()) {
+                    ui_set_rainbow_mode(0);
+                    ui_print("Rainbow mode disabled\n");
+                }
+                else {
+                    ui_set_rainbow_mode(1);
+                    ui_print("Rainbow mode enabled!\n");
+                }
+            }
+        }
     }
 
     ui_end_menu();
@@ -537,7 +580,7 @@ update_directory(const char* path, const char* unmount_when_done) {
         return 0;
     }
 
-    char** headers = prepend_title(MENU_HEADERS);
+    const char** headers = prepend_title(MENU_HEADERS);
 
     int d_size = 0;
     int d_alloc = 10;
@@ -659,33 +702,6 @@ wipe_data(int confirm) {
         {
 			return;
 		}
-
-  /*      if (title_headers == NULL) {
-            char* headers[] = { "Confirm wipe of all user data?",
-                                "  THIS CAN NOT BE UNDONE.",
-                                "",
-                                NULL };
-            title_headers = prepend_title((const char**)headers);
-        }
-
-        char* items[] = { " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " Yes -- delete all user data",   // [7]
-                          " No",
-                          " No",
-                          " No",
-                          NULL };
-
-        int chosen_item = get_menu_selection(title_headers, items, 1, 0);
-        if (chosen_item != 7) {
-            return;
-        }
-*/
     }
 
     ui_print("\n-- Wiping data...\n");
@@ -696,20 +712,29 @@ wipe_data(int confirm) {
         erase_volume("/datadata");
     }
     erase_volume("/sd-ext");
-    erase_volume("/sdcard/.android_secure");
+    erase_volume(get_android_secure_path());
     ui_print("Data wipe complete.\n");
+}
+
+static void headless_wait() {
+    ui_show_text(0);
+    const char** headers = prepend_title((const char**)MENU_HEADERS);
+    for(;;) {
+        finish_recovery(NULL);
+        get_menu_selection(headers, MENU_ITEMS, 0, 0);
+    }
 }
 
 int ui_menu_level = 1;
 int ui_root_menu = 0;
 static void
 prompt_and_wait() {
-    char** headers = prepend_title((const char**)MENU_HEADERS);
+    const char** headers = prepend_title((const char**)MENU_HEADERS);
 
     for (;;) {
         finish_recovery(NULL);
         ui_reset_progress();
-        
+
         ui_root_menu = 1;
         // ui_menu_level is a legacy variable that i am keeping around to prevent build breakage.
         ui_menu_level = 0;
@@ -725,49 +750,49 @@ prompt_and_wait() {
         chosen_item = device_perform_action(chosen_item);
 
         int status;
-        switch (chosen_item) {
-            case ITEM_REBOOT:
-                poweroff=0;
-                return;
+        int ret = 0;
 
-            case ITEM_WIPE_DATA:
-                wipe_data(ui_text_visible());
-                if (!ui_text_visible()) return;
-                break;
+        for (;;) {
+            switch (chosen_item) {
+                case ITEM_REBOOT:
+                    return;
 
-            case ITEM_WIPE_CACHE:
-                if (confirm_selection("Confirm wipe?", "Yes - Wipe Cache"))
-                {
-                    ui_print("\n-- Wiping cache...\n");
-                    erase_volume("/cache");
-                    ui_print("Cache wipe complete.\n");
+                case ITEM_WIPE_DATA:
+                    wipe_data(ui_text_visible());
                     if (!ui_text_visible()) return;
-                }
-                break;
+                    break;
 
-            case ITEM_APPLY_SDCARD:
-                show_install_update_menu();
-                break;
+                case ITEM_WIPE_CACHE:
+                    if (confirm_selection("Confirm wipe?", "Yes - Wipe Cache"))
+                    {
+                        ui_print("\n-- Wiping cache...\n");
+                        erase_volume("/cache");
+                        ui_print("Cache wipe complete.\n");
+                        if (!ui_text_visible()) return;
+                    }
+                    break;
 
-            case ITEM_APPLY_SIDELOAD:
-                apply_from_adb();
-                break;
+                case ITEM_APPLY_ZIP:
+                    ret = show_install_update_menu();
+                    break;
 
-            case ITEM_NANDROID:
-                show_nandroid_menu();
-                break;
+                case ITEM_NANDROID:
+                    ret = show_nandroid_menu();
+                    break;
 
-            case ITEM_PARTITION:
-                show_partition_menu();
-                break;
+                case ITEM_PARTITION:
+                    ret = show_partition_menu();
+                    break;
 
-            case ITEM_ADVANCED:
-                show_advanced_menu();
-                break;
-
-            case ITEM_POWEROFF:
-                poweroff = 1;
-                return;
+                case ITEM_ADVANCED:
+                    ret = show_advanced_menu();
+                    break;
+            }
+            if (ret == REFRESH) {
+                ret = 0;
+                continue;
+            }
+            break;
         }
     }
 }
@@ -776,6 +801,89 @@ static void
 print_property(const char *key, const char *name, void *cookie) {
     printf("%s=%s\n", key, name);
 }
+
+static void
+setup_adbd() {
+    struct stat f;
+    static char *key_src = "/data/misc/adb/adb_keys";
+    static char *key_dest = "/adb_keys";
+
+    // Mount /data and copy adb_keys to root if it exists
+    ensure_path_mounted("/data");
+    if (stat(key_src, &f) == 0) {
+        FILE *file_src = fopen(key_src, "r");
+        if (file_src == NULL) {
+            LOGE("Can't open %s\n", key_src);
+        } else {
+            FILE *file_dest = fopen(key_dest, "w");
+            if (file_dest == NULL) {
+                LOGE("Can't open %s\n", key_dest);
+            } else {
+                char buf[4096];
+                while (fgets(buf, sizeof(buf), file_src)) fputs(buf, file_dest);
+                check_and_fclose(file_dest, key_dest);
+
+                // Enable secure adbd
+                property_set("ro.adb.secure", "1");
+            }
+            check_and_fclose(file_src, key_src);
+        }
+    }
+    ignore_data_media_workaround(1);
+    ensure_path_unmounted("/data");
+    ignore_data_media_workaround(0);
+
+    // Trigger (re)start of adb daemon
+    property_set("service.adb.root", "1");
+}
+
+// call a clean reboot
+void reboot_main_system(int cmd, int flags, char *arg) {
+    write_recovery_version();
+    verify_root_and_recovery();
+    finish_recovery(NULL); // sync() in here
+    vold_unmount_all();
+    android_reboot(cmd, flags, arg);
+}
+
+static int v_changed = 0;
+int volumes_changed() {
+    int ret = v_changed;
+    if (v_changed == 1)
+        v_changed = 0;
+    return ret;
+}
+
+static int handle_volume_hotswap(char* label, char* path) {
+    v_changed = 1;
+    return 0;
+}
+
+static int handle_volume_state_changed(char* label, char* path, int state) {
+    int log = -1;
+    if (state == State_Checking || state == State_Mounted || state == State_Idle) {
+        // do not ever log to screen mount/unmount events for sdcards
+        if (strncmp(path, "/storage/sdcard", 15) == 0)
+            log = 0;
+        else log = 1;
+    }
+    else if (state == State_Formatting || state == State_Shared) {
+            log = 1;
+    }
+
+    if (log == 0)
+        LOGI("%s: %s\n", path, volume_state_to_string(state));
+    else if (log == 1)
+        ui_print("%s: %s\n", path, volume_state_to_string(state));
+
+    return 0;
+}
+
+static struct vold_callbacks v_callbacks = {
+    .state_changed = handle_volume_state_changed,
+    .disk_added = handle_volume_hotswap,
+    .disk_removed = handle_volume_hotswap,
+};
 
 int
 main(int argc, char **argv) {
@@ -789,42 +897,37 @@ main(int argc, char **argv) {
     // set by init
     umask(0);
 
-    if (strcmp(basename(argv[0]), "recovery") != 0)
+    char* command = argv[0];
+    char* stripped = strrchr(argv[0], '/');
+    if (stripped)
+        command = stripped + 1;
+
+    if (strcmp(command, "recovery") != 0)
     {
-        if (strstr(argv[0], "minizip") != NULL)
-            return minizip_main(argc, argv);
-        if (strstr(argv[0], "dedupe") != NULL)
-            return dedupe_main(argc, argv);
-        if (strstr(argv[0], "flash_image") != NULL)
-            return flash_image_main(argc, argv);
-        if (strstr(argv[0], "volume") != NULL)
-            return volume_main(argc, argv);
-        if (strstr(argv[0], "edify") != NULL)
-            return edify_main(argc, argv);
-        if (strstr(argv[0], "dump_image") != NULL)
-            return dump_image_main(argc, argv);
-        if (strstr(argv[0], "erase_image") != NULL)
-            return erase_image_main(argc, argv);
-        if (strstr(argv[0], "mkyaffs2image") != NULL)
-            return mkyaffs2image_main(argc, argv);
-        if (strstr(argv[0], "unyaffs") != NULL)
-            return unyaffs_main(argc, argv);
-        if (strstr(argv[0], "nandroid"))
-            return nandroid_main(argc, argv);
-        if (strstr(argv[0], "reboot"))
-            return reboot_main(argc, argv);
+        struct recovery_cmd cmd = get_command(command);
+        if (cmd.name)
+            return cmd.main_func(argc, argv);
+
 #ifdef BOARD_RECOVERY_HANDLES_MOUNT
-        if (strstr(argv[0], "mount") && argc == 2 && !strstr(argv[0], "umount"))
+        if (!strcmp(command, "mount") && argc == 2)
         {
             load_volume_table();
             return ensure_path_mounted(argv[1]);
         }
 #endif
-        if (strstr(argv[0], "poweroff")){
-            return reboot_main(argc, argv);
+        if (!strcmp(command, "setup_adbd")) {
+            load_volume_table();
+            setup_adbd();
+            return 0;
         }
-        if (strstr(argv[0], "setprop"))
-            return setprop_main(argc, argv);
+        if (!strcmp(command, "start")) {
+            property_set("ctl.start", argv[1]);
+            return 0;
+        }
+        if (!strcmp(command, "stop")) {
+            property_set("ctl.stop", argv[1]);
+            return 0;
+        }
         return busybox_driver(argc, argv);
     }
     __system("/sbin/postrecoveryboot.sh");
@@ -835,20 +938,37 @@ main(int argc, char **argv) {
     // If these fail, there's not really anywhere to complain...
     freopen(TEMPORARY_LOG_FILE, "a", stdout); setbuf(stdout, NULL);
     freopen(TEMPORARY_LOG_FILE, "a", stderr); setbuf(stderr, NULL);
-    printf("Starting recovery on %s", ctime(&start));
+    printf("Starting recovery on %s\n", ctime(&start));
 
     device_ui_init(&ui_parameters);
     ui_init();
     ui_print(EXPAND(RECOVERY_VERSION)"\n");
+
+#ifdef BOARD_RECOVERY_SWIPE
+#ifndef BOARD_TOUCH_RECOVERY
+    //display directions for swipe controls
+    ui_print("Swipe up/down to change selections.\n");
+    ui_print("Swipe to the right for enter.\n");
+    ui_print("Swipe to the left for back.\n");
+#endif
+#endif
+
     load_volume_table();
     process_volumes();
+    vold_client_start(&v_callbacks, 0);
+    vold_set_automount(1);
+    setup_legacy_storage_paths();
     LOGI("Processing arguments.\n");
+    ensure_path_mounted(LAST_LOG_FILE);
+    rotate_last_logs(5);
     get_args(&argc, &argv);
 
     int previous_runs = 0;
     const char *send_intent = NULL;
     const char *update_package = NULL;
     int wipe_data = 0, wipe_cache = 0;
+    int sideload = 0;
+    int headless = 0;
 
     LOGI("Checking arguments.\n");
     int arg;
@@ -857,17 +977,34 @@ main(int argc, char **argv) {
         case 'p': previous_runs = atoi(optarg); break;
         case 's': send_intent = optarg; break;
         case 'u': update_package = optarg; break;
-        case 'w': 
+        case 'w':
 #ifndef BOARD_RECOVERY_ALWAYS_WIPES
         wipe_data = wipe_cache = 1;
 #endif
         break;
+        case 'h':
+            ui_set_background(BACKGROUND_ICON_CID);
+            ui_show_text(0);
+            headless = 1;
+            break;
         case 'c': wipe_cache = 1; break;
         case 't': ui_show_text(1); break;
+        case 'l': sideload = 1; break;
         case '?':
             LOGE("Invalid command argument\n");
             continue;
         }
+    }
+
+    struct selinux_opt seopts[] = {
+      { SELABEL_OPT_PATH, "/file_contexts" }
+    };
+
+    sehandle = selabel_open(SELABEL_CTX_FILE, seopts, 1);
+
+    if (!sehandle) {
+        fprintf(stderr, "Warning: No file_contexts\n");
+        ui_print("Warning:  No file_contexts\n");
     }
 
     LOGI("device_recovery_start()\n");
@@ -905,7 +1042,9 @@ main(int argc, char **argv) {
         if (status != INSTALL_SUCCESS) ui_print("Installation aborted.\n");
     } else if (wipe_data) {
         if (device_wipe_data()) status = INSTALL_ERROR;
+        ignore_data_media_workaround(1);
         if (erase_volume("/data")) status = INSTALL_ERROR;
+        ignore_data_media_workaround(0);
         if (has_datadata() && erase_volume("/datadata")) status = INSTALL_ERROR;
         if (wipe_cache && erase_volume("/cache")) status = INSTALL_ERROR;
         if (status != INSTALL_SUCCESS) ui_print("Data wipe failed.\n");
@@ -920,9 +1059,11 @@ main(int argc, char **argv) {
         signature_check_enabled = 0;
         script_assert_enabled = 0;
         is_user_initiated_recovery = 1;
-        ui_set_show_text(1);
-        ui_set_background(BACKGROUND_ICON_CLOCKWORK);
-        
+        if (!headless) {
+            ui_set_show_text(1);
+            ui_set_background(BACKGROUND_ICON_CLOCKWORK);
+        }
+
         if (extendedcommand_file_exists()) {
             LOGI("Running extendedcommand...\n");
             int ret;
@@ -938,31 +1079,36 @@ main(int argc, char **argv) {
         }
     }
 
+    if (sideload) {
+        signature_check_enabled = 0;
+        if (!headless)
+            ui_set_show_text(1);
+        if (0 == apply_from_adb()) {
+            status = INSTALL_SUCCESS;
+            ui_set_show_text(0);
+        }
+    }
+
+    if (headless) {
+        headless_wait();
+    }
     if (status != INSTALL_SUCCESS && !is_user_initiated_recovery) {
         ui_set_show_text(1);
         ui_set_background(BACKGROUND_ICON_ERROR);
     }
-    if (status != INSTALL_SUCCESS || ui_text_visible()) {
+    else if (status != INSTALL_SUCCESS || ui_text_visible()) {
         prompt_and_wait();
     }
 
-    verify_root_and_recovery();
-
+    // We reach here when in main menu we choose reboot main system or for some wipe commands on start
     // If there is a radio image pending, reboot now to install it.
     maybe_install_firmware_update(send_intent);
 
     // Otherwise, get ready to boot the main system...
     finish_recovery(send_intent);
+    ui_print("Rebooting...\n");
+    reboot_main_system(ANDROID_RB_RESTART, 0, 0);
 
-    sync();
-    if(!poweroff) {
-        ui_print("Rebooting...\n");
-        android_reboot(ANDROID_RB_RESTART, 0, 0);
-    }
-    else {
-        ui_print("Shutting down...\n");
-        android_reboot(ANDROID_RB_POWEROFF, 0, 0);
-    }
     return EXIT_SUCCESS;
 }
 

@@ -41,6 +41,8 @@
 #include "bmlutils/bmlutils.h"
 #include "cutils/android_reboot.h"
 
+#include "adb_install.h"
+
 #define ABS_MT_POSITION_X 0x35  /* Center X ellipse position */
 
 int signature_check_enabled = 1;
@@ -81,8 +83,17 @@ void write_string_to_file(const char* filename, const char* string) {
     sprintf(tmp, "mkdir -p $(dirname %s)", filename);
     __system(tmp);
     FILE *file = fopen(filename, "w");
-    fprintf(file, "%s", string);
-    fclose(file);
+    if( file != NULL) {
+        fprintf(file, "%s", string);
+        fclose(file);
+    }
+}
+
+void write_recovery_version() {
+    if ( is_data_media() ) {
+        write_string_to_file("/sdcard/0/clockworkmod/.recovery_version",EXPAND(RECOVERY_VERSION) "\n" EXPAND(TARGET_DEVICE));
+    }
+    write_string_to_file("/sdcard/clockworkmod/.recovery_version",EXPAND(RECOVERY_VERSION) "\n" EXPAND(TARGET_DEVICE));
 }
 
 void
@@ -111,18 +122,20 @@ int install_zip(const char* packagefilepath)
 }
 
 #define ITEM_CHOOSE_ZIP       0
-#define ITEM_APPLY_SDCARD     1
-#define ITEM_SIG_CHECK        2
-#define ITEM_CHOOSE_ZIP_INT   3
+#define ITEM_APPLY_SIDELOAD   1
+#define ITEM_APPLY_UPDATE 2 // /sdcard/update.zip
+#define ITEM_SIG_CHECK        3
+#define ITEM_CHOOSE_ZIP_INT   4
 
 void show_install_update_menu()
 {
-    static char* headers[] = {  "Apply update from .zip file on SD card",
+    static char* headers[] = {  "Install update from zip file",
                                 "",
                                 NULL
     };
     
     char* install_menu_items[] = {  "choose zip from sdcard",
+                                    "install zip from sideload",
                                     "apply /sdcard/update.zip",
                                     "toggle signature verification",
                                     NULL,
@@ -131,11 +144,11 @@ void show_install_update_menu()
     char *other_sd = NULL;
     if (volume_for_path("/emmc") != NULL) {
         other_sd = "/emmc/";
-        install_menu_items[3] = "choose zip from internal sdcard";
+        install_menu_items[4] = "choose zip from internal sdcard";
     }
     else if (volume_for_path("/external_sd") != NULL) {
         other_sd = "/external_sd/";
-        install_menu_items[3] = "choose zip from external sdcard";
+        install_menu_items[4] = "choose zip from external sdcard";
     }
     
     for (;;)
@@ -146,7 +159,7 @@ void show_install_update_menu()
             case ITEM_SIG_CHECK:
                 toggle_signature_check();
                 break;
-            case ITEM_APPLY_SDCARD:
+            case ITEM_APPLY_UPDATE:
             {
                 if (confirm_selection("Confirm install?", "Yes - Install /sdcard/update.zip"))
                     install_zip(SDCARD_UPDATE_FILE);
@@ -154,6 +167,10 @@ void show_install_update_menu()
             }
             case ITEM_CHOOSE_ZIP:
                 show_choose_zip_menu("/sdcard/");
+                write_recovery_version();
+                break;
+            case ITEM_APPLY_SIDELOAD:
+                apply_from_adb();
                 break;
             case ITEM_CHOOSE_ZIP_INT:
                 if (other_sd != NULL)
@@ -226,7 +243,7 @@ char** gather_files(const char* directory, const char* fileExtensionOrDirectory,
                 char fullFileName[PATH_MAX];
                 strcpy(fullFileName, directory);
                 strcat(fullFileName, de->d_name);
-                stat(fullFileName, &info);
+                lstat(fullFileName, &info);
                 // make sure it is a directory
                 if (!(S_ISDIR(info.st_mode)))
                     continue;
@@ -493,6 +510,9 @@ int control_usb_storage_for_lun(Volume* vol, bool enable) {
 #ifdef BOARD_UMS_LUNFILE
         BOARD_UMS_LUNFILE,
 #endif
+#ifdef TARGET_USE_CUSTOM_LUN_FILE_PATH
+        TARGET_USE_CUSTOM_LUN_FILE_PATH,
+#endif
         "/sys/devices/platform/usb_mass_storage/lun%d/file",
         "/sys/class/android_usb/android0/f_mass_storage/lun/file",
         "/sys/class/android_usb/android0/f_mass_storage/lun_ex/file",
@@ -569,7 +589,7 @@ void show_mount_usb_storage_menu()
         return;
 
     static char* headers[] = {  "USB Mass Storage device",
-                                "Leaving this menu unmount",
+                                "Leaving this menu unmounts",
                                 "your SD card from your PC.",
                                 "",
                                 NULL
@@ -603,7 +623,7 @@ int confirm_selection(const char* title, const char* confirm)
 //For time being, hardcoded one_confirm for UCtouch recovery
 	one_confirm = 1;
 
-	if (one_confirm) {
+    if (one_confirm) {
         char* items[] = { "No",
                         confirm, //" Yes -- wipe partition",   // [1]
                         NULL };
@@ -860,10 +880,12 @@ void show_partition_menu()
     for (i = 0; i < num_volumes; ++i) {
         Volume* v = &device_volumes[i];
         if(strcmp("ramdisk", v->fs_type) != 0 && strcmp("mtd", v->fs_type) != 0 && strcmp("emmc", v->fs_type) != 0 && strcmp("bml", v->fs_type) != 0) {
-            sprintf(&mount_menu[mountable_volumes].mount, "mount %s", v->mount_point);
-            sprintf(&mount_menu[mountable_volumes].unmount, "unmount %s", v->mount_point);
-            mount_menu[mountable_volumes].v = &device_volumes[i];
-            ++mountable_volumes;
+            if (strcmp("datamedia", v->fs_type) != 0) {
+                sprintf(&mount_menu[mountable_volumes].mount, "mount %s", v->mount_point);
+                sprintf(&mount_menu[mountable_volumes].unmount, "unmount %s", v->mount_point);
+                mount_menu[mountable_volumes].v = &device_volumes[i];
+                ++mountable_volumes;
+            }
             if (is_safe_to_format(v->mount_point)) {
                 sprintf(&format_menu[formatable_volumes].txt, "format %s", v->mount_point);
                 format_menu[formatable_volumes].v = &device_volumes[i];
@@ -920,13 +942,13 @@ void show_partition_menu()
             else {
                 if (!confirm_selection("format /data and /data/media (/sdcard)", confirm))
                     continue;
-                handle_data_media_format(1);
+                ignore_data_media_workaround(1);
                 ui_print("Formatting /data...\n");
                 if (0 != format_volume("/data"))
                     ui_print("Error formatting /data!\n");
                 else
                     ui_print("Done.\n");
-                handle_data_media_format(0);  
+                ignore_data_media_workaround(0);
             }
         }
         else if (chosen_item < mountable_volumes) {
@@ -977,7 +999,7 @@ void show_nandroid_advanced_restore_menu(const char* path)
                                 "",
                                 "Choose an image to restore",
                                 "first. The next menu will",
-                                "you more options.",
+                                "show you more options.",
                                 "",
                                 NULL
     };
@@ -1148,16 +1170,20 @@ void show_nandroid_menu()
                         strftime(backup_path, sizeof(backup_path), "/sdcard/clockworkmod/backup/%F.%H.%M.%S", tmp);
                     }
                     nandroid_backup(backup_path);
+                    write_recovery_version();
                 }
                 break;
             case 1:
                 show_nandroid_restore_menu("/sdcard");
+                write_recovery_version();
                 break;
             case 2:
                 show_nandroid_delete_menu("/sdcard");
+                write_recovery_version();
                 break;
             case 3:
                 show_nandroid_advanced_restore_menu("/sdcard");
+                write_recovery_version();
                 break;
             case 4:
                 run_dedupe_gc(other_sd);
@@ -1242,8 +1268,14 @@ static void partition_sdcard(const char* volume) {
                                   "256M",
                                   NULL };
 
+    static char* partition_types[] = { "ext3",
+                                       "ext4",
+                                       NULL
+    };
+
     static char* ext_headers[] = { "Ext Size", "", NULL };
     static char* swap_headers[] = { "Swap Size", "", NULL };
+    static char* fstype_headers[] = {"Partition Type", "", NULL };
 
     int ext_size = get_menu_selection(ext_headers, ext_sizes, 0, 0);
     if (ext_size == GO_BACK)
@@ -1253,6 +1285,10 @@ static void partition_sdcard(const char* volume) {
     if (swap_size == GO_BACK)
         return;
 
+    int partition_type = get_menu_selection(fstype_headers, partition_types, 0, 0);
+    if (partition_type == GO_BACK)
+        return;
+
     char sddevice[256];
     Volume *vol = volume_for_path(volume);
     strcpy(sddevice, vol->device);
@@ -1260,7 +1296,7 @@ static void partition_sdcard(const char* volume) {
     sddevice[strlen("/dev/block/mmcblkX")] = NULL;
     char cmd[PATH_MAX];
     setenv("SDPATH", sddevice, 1);
-    sprintf(cmd, "sdparted -es %s -ss %s -efs ext3 -s", ext_sizes[ext_size], swap_sizes[swap_size]);
+    sprintf(cmd, "sdparted -es %s -ss %s -efs %s -s", ext_sizes[ext_size], swap_sizes[swap_size], partition_types[partition_type]);
     ui_print("Partitioning SD Card... please wait...\n");
     if (0 == __system(cmd))
         ui_print("Done!\n");
@@ -1298,25 +1334,32 @@ void show_advanced_menu()
     };
 
     static char* list[] = { "reboot recovery",
+                            "reboot to bootloader",
+                            "power off",
                             "wipe dalvik cache",
                             "report error",
                             "key test",
                             "show log",
-                            "fix permissions",
                             "partition sdcard",
                             "partition external sdcard",
                             "partition internal sdcard",
                             NULL
     };
 
-    if (!can_partition("/sdcard")) {
-        list[6] = NULL;
+    char bootloader_mode[PROPERTY_VALUE_MAX];
+    property_get("ro.bootloader.mode", bootloader_mode, "");
+    if (!strcmp(bootloader_mode, "download")) {
+        list[1] = "reboot to download mode";
     }
-    if (!can_partition("/external_sd")) {
+
+    if (!can_partition("/sdcard")) {
         list[7] = NULL;
     }
-    if (!can_partition("/emmc")) {
+    if (!can_partition("/external_sd")) {
         list[8] = NULL;
+    }
+    if (!can_partition("/emmc")) {
+        list[9] = NULL;
     }
 
     for (;;)
@@ -1327,9 +1370,29 @@ void show_advanced_menu()
         switch (chosen_item)
         {
             case 0:
-                android_reboot(ANDROID_RB_RESTART2, 0, "recovery");
+            {
+                ui_print("Rebooting recovery...\n");
+                reboot_main_system(ANDROID_RB_RESTART2, 0, "recovery");
                 break;
+            }
             case 1:
+            {
+                if (!strcmp(bootloader_mode, "download")) {
+                    ui_print("Rebooting to download mode...\n");
+                    reboot_main_system(ANDROID_RB_RESTART2, 0, "download");
+                } else {
+                    ui_print("Rebooting to bootloader...\n");
+                    reboot_main_system(ANDROID_RB_RESTART2, 0, "bootloader");
+                }
+                break;
+            }
+            case 2:
+            {
+                ui_print("Shutting down...\n");
+                reboot_main_system(ANDROID_RB_POWEROFF, 0, 0);
+                break;
+            }
+            case 3:
                 if (0 != ensure_path_mounted("/data"))
                     break;
                 ensure_path_mounted("/sd-ext");
@@ -1342,10 +1405,10 @@ void show_advanced_menu()
                 }
                 ensure_path_unmounted("/data");
                 break;
-            case 2:
+            case 4:
                 handle_failure(1);
                 break;
-            case 3:
+            case 5:
             {
                 ui_print("Outputting key codes.\n");
                 ui_print("Go back to end debugging.\n");
@@ -1383,23 +1446,16 @@ void show_advanced_menu()
                 while (action != GO_BACK);
                 break;
             }
-            case 4:
+            case 6:
                 ui_printlogtail(12);
                 break;
-            case 5:
-                ensure_path_mounted("/system");
-                ensure_path_mounted("/data");
-                ui_print("Fixing permissions...\n");
-                __system("fix_permissions");
-                ui_print("Done!\n");
-                break;
-            case 6:
+            case 7:
                 partition_sdcard("/sdcard");
                 break;
-            case 7:
+            case 8:
                 partition_sdcard("/external_sd");
                 break;
-            case 8:
+            case 9:
                 partition_sdcard("/emmc");
                 break;
         }
@@ -1445,6 +1501,7 @@ void create_fstab()
     write_fstab_root("/system", file);
     write_fstab_root("/sdcard", file);
     write_fstab_root("/sd-ext", file);
+    write_fstab_root("/external_sd", file);
     fclose(file);
     LOGI("Completed outputting fstab.\n");
 }
@@ -1570,17 +1627,26 @@ int verify_root_and_recovery() {
 
     int ret = 0;
     struct stat st;
-    if (0 == lstat("/system/etc/install-recovery.sh", &st)) {
-        if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
-            ui_show_text(1);
-            ret = 1;
-            if (confirm_selection("ROM may flash stock recovery on boot. Fix?", "Yes - Disable recovery flash")) {
-                __system("chmod -x /system/etc/install-recovery.sh");
+    // check to see if install-recovery.sh is going to clobber recovery
+    // install-recovery.sh is also used to run the su daemon on stock rom for 4.3+
+    // so verify that doesn't exist...
+    if (0 != lstat("/system/etc/.installed_su_daemon", &st)) {
+        // check install-recovery.sh exists and is executable
+        if (0 == lstat("/system/etc/install-recovery.sh", &st)) {
+            if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+                ui_show_text(1);
+                ret = 1;
+                if (confirm_selection("ROM may flash stock recovery on boot. Fix?", "Yes - Disable recovery flash")) {
+                    __system("chmod -x /system/etc/install-recovery.sh");
+                }
             }
         }
     }
 
+
+    int exists = 0;
     if (0 == lstat("/system/bin/su", &st)) {
+        exists = 1;
         if (S_ISREG(st.st_mode)) {
             if ((st.st_mode & (S_ISUID | S_ISGID)) != (S_ISUID | S_ISGID)) {
                 ui_show_text(1);
@@ -1593,6 +1659,7 @@ int verify_root_and_recovery() {
     }
 
     if (0 == lstat("/system/xbin/su", &st)) {
+        exists = 1;
         if (S_ISREG(st.st_mode)) {
             if ((st.st_mode & (S_ISUID | S_ISGID)) != (S_ISUID | S_ISGID)) {
                 ui_show_text(1);
@@ -1601,6 +1668,14 @@ int verify_root_and_recovery() {
                     __system("chmod 6755 /system/xbin/su");
                 }
             }
+        }
+    }
+
+    if (!exists) {
+        ui_show_text(1);
+        ret = 1;
+        if (confirm_selection("Root access is missing. Root device?", "Yes - Root device (/system/xbin/su)")) {
+            __system("/sbin/install-su.sh");
         }
     }
 

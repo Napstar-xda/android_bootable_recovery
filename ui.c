@@ -111,6 +111,7 @@ static const struct { gr_surface* surface; const char *name; } BITMAPS[] = {
     { &gBackgroundIcon[BACKGROUND_ICON_INSTALLING], "icon_installing" },
     { &gBackgroundIcon[BACKGROUND_ICON_ERROR],      "icon_error" },
     { &gBackgroundIcon[BACKGROUND_ICON_CLOCKWORK],  "icon_clockwork" },
+    { &gBackgroundIcon[BACKGROUND_ICON_CID],  "icon_cid" },
     { &gBackgroundIcon[BACKGROUND_ICON_FIRMWARE_INSTALLING], "icon_firmware_install" },
     { &gBackgroundIcon[BACKGROUND_ICON_FIRMWARE_ERROR], "icon_firmware_error" },
 	{ &gMenuIcon[MENU_BACK],      "icon_back" },
@@ -462,6 +463,7 @@ static void draw_screen_locked(void)
             row = draw_touch_menu(menu, menu_items, menu_top, menu_sel, menu_show_start);
         }
 #endif
+
         gr_color(NORMAL_TEXT_COLOR);
         int cur_row = text_row;
         int available_rows = total_rows - (rowOffset/CHAR_HEIGHT) - 1;
@@ -1445,6 +1447,14 @@ static int usb_connected() {
     return connected;
 }
 
+void ui_cancel_wait_key() {
+    pthread_mutex_lock(&key_queue_mutex);
+    key_queue[key_queue_len] = -2;
+    key_queue_len++;
+    pthread_cond_signal(&key_queue_cond);
+    pthread_mutex_unlock(&key_queue_mutex);
+}
+
 struct keyStruct *ui_wait_key()
 {
     if (boardEnableKeyRepeat) return ui_wait_key_with_repeat();
@@ -1592,6 +1602,15 @@ void ui_clear_key_queue() {
     pthread_mutex_lock(&key_queue_mutex);
     key_queue_len = 0;
     pthread_mutex_unlock(&key_queue_mutex);
+}
+
+void ui_set_log_stdout(int enabled) {
+    ui_log_stdout = enabled;
+}
+
+int ui_should_log_stdout()
+{
+    return ui_log_stdout;
 }
 
 void ui_set_show_text(int value) {

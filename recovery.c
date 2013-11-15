@@ -55,9 +55,11 @@ struct selabel_handle *sehandle = NULL;
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
   { "update_package", required_argument, NULL, 'u' },
+  { "headless", no_argument, NULL, 'h' },
   { "wipe_data", no_argument, NULL, 'w' },
   { "wipe_cache", no_argument, NULL, 'c' },
   { "show_text", no_argument, NULL, 't' },
+  { "sideload", no_argument, NULL, 'l' },
   { NULL, 0, NULL, 0 },
 };
 
@@ -204,6 +206,7 @@ get_args(int *argc, char ***argv) {
     if (*argc <= 1) {
         FILE *fp = fopen_path(COMMAND_FILE, "r");
         if (fp != NULL) {
+            char *token;
             char *argv0 = (*argv)[0];
             *argv = (char **) malloc(sizeof(char *) * MAX_ARGS);
             (*argv)[0] = argv0;  // use the same program name
@@ -211,7 +214,12 @@ get_args(int *argc, char ***argv) {
             char buf[MAX_ARG_LENGTH];
             for (*argc = 1; *argc < MAX_ARGS; ++*argc) {
                 if (!fgets(buf, sizeof(buf), fp)) break;
-                (*argv)[*argc] = strdup(strtok(buf, "\r\n"));  // Strip newline.
+                token = strtok(buf, "\r\n");
+                if (token != NULL) {
+                    (*argv)[*argc] = strdup(token);  // Strip newline.
+                } else {
+                    --*argc;
+                }
             }
 
             check_and_fclose(fp, COMMAND_FILE);
@@ -443,11 +451,6 @@ get_menu_selection(char** headers, char** items, int menu_only,
     int selected = initial_selection;
     int chosen_item = -1;
 
-    // Some users with dead enter keys need a way to turn on power to select.
-    // Jiggering across the wrapping menu is one "secret" way to enable it.
-    // We can't rely on /cache or /sdcard since they may not be available.
-    int wrap_count = 0;
-
     while (chosen_item < 0 && chosen_item != GO_BACK) {
 		struct keyStruct *key;
 		key = ui_wait_key();
@@ -462,6 +465,9 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 ui_end_menu();
                 return ITEM_REBOOT;
             }
+        }
+        else if (key == -2) {
+            return GO_BACK;
         }
 
 		int action=-1;
@@ -648,8 +654,6 @@ update_directory(const char* path, const char* unmount_when_done) {
 static void
 wipe_data(int confirm) {
     if (confirm) {
-        static char** title_headers = NULL;
-
         if (!confirm_selection("Confirm wipe all user data?", "Yes-Wipe All Data"))
         {
 			return;
@@ -659,33 +663,6 @@ wipe_data(int confirm) {
         {
 			return;
 		}
-
-  /*      if (title_headers == NULL) {
-            char* headers[] = { "Confirm wipe of all user data?",
-                                "  THIS CAN NOT BE UNDONE.",
-                                "",
-                                NULL };
-            title_headers = prepend_title((const char**)headers);
-        }
-
-        char* items[] = { " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " No",
-                          " Yes -- delete all user data",   // [7]
-                          " No",
-                          " No",
-                          " No",
-                          NULL };
-
-        int chosen_item = get_menu_selection(title_headers, items, 1, 0);
-        if (chosen_item != 7) {
-            return;
-        }
-*/
     }
 
     ui_print("\n-- Wiping data...\n");
@@ -698,6 +675,15 @@ wipe_data(int confirm) {
     erase_volume("/sd-ext");
     erase_volume("/sdcard/.android_secure");
     ui_print("Data wipe complete.\n");
+}
+
+static void headless_wait() {
+  ui_show_text(0);
+  char** headers = prepend_title((const char**)MENU_HEADERS);
+  for (;;) {
+    finish_recovery(NULL);
+    get_menu_selection(headers, MENU_ITEMS, 0, 0);
+  }
 }
 
 int ui_menu_level = 1;
@@ -727,7 +713,7 @@ prompt_and_wait() {
         int status;
         switch (chosen_item) {
             case ITEM_REBOOT:
-                poweroff=0;
+                poweroff = 0;
                 return;
 
             case ITEM_WIPE_DATA:
@@ -745,12 +731,8 @@ prompt_and_wait() {
                 }
                 break;
 
-            case ITEM_APPLY_SDCARD:
+            case ITEM_APPLY_ZIP:
                 show_install_update_menu();
-                break;
-
-            case ITEM_APPLY_SIDELOAD:
-                apply_from_adb();
                 break;
 
             case ITEM_NANDROID:
@@ -764,10 +746,6 @@ prompt_and_wait() {
             case ITEM_ADVANCED:
                 show_advanced_menu();
                 break;
-
-            case ITEM_POWEROFF:
-                poweroff = 1;
-                return;
         }
     }
 }
@@ -775,6 +753,48 @@ prompt_and_wait() {
 static void
 print_property(const char *key, const char *name, void *cookie) {
     printf("%s=%s\n", key, name);
+}
+
+static void
+setup_adbd() {
+    struct stat f;
+    static char *key_src = "/data/misc/adb/adb_keys";
+    static char *key_dest = "/adb_keys";
+
+    // Mount /data and copy adb_keys to root if it exists
+    ensure_path_mounted("/data");
+    if (stat(key_src, &f) == 0) {
+        FILE *file_src = fopen(key_src, "r");
+        if (file_src == NULL) {
+            LOGE("Can't open %s\n", key_src);
+        } else {
+            FILE *file_dest = fopen(key_dest, "w");
+            if (file_dest == NULL) {
+                LOGE("Can't open %s\n", key_dest);
+            } else {
+                char buf[4096];
+                while (fgets(buf, sizeof(buf), file_src)) fputs(buf, file_dest);
+                check_and_fclose(file_dest, key_dest);
+
+                // Enable secure adbd
+                property_set("ro.adb.secure", "1");
+            }
+            check_and_fclose(file_src, key_src);
+        }
+    }
+    ignore_data_media_workaround(1);
+    ensure_path_unmounted("/data");
+    ignore_data_media_workaround(0);
+
+    // Trigger (re)start of adb daemon
+    property_set("service.adb.root", "1");
+}
+
+// call a clean reboot
+void reboot_main_system(int cmd, int flags, char *arg) {
+    verify_root_and_recovery();
+    finish_recovery(NULL); // sync() in here
+    android_reboot(cmd, flags, arg);
 }
 
 int
@@ -806,11 +826,15 @@ main(int argc, char **argv) {
         if (strstr(argv[0], "erase_image") != NULL)
             return erase_image_main(argc, argv);
         if (strstr(argv[0], "mkyaffs2image") != NULL)
-            return mkyaffs2image_main(argc, argv);
+             return mkyaffs2image_main(argc, argv);
+        if (strstr(argv[0], "make_ext4fs") != NULL)
+            return make_ext4fs_main(argc, argv);
         if (strstr(argv[0], "unyaffs") != NULL)
             return unyaffs_main(argc, argv);
         if (strstr(argv[0], "nandroid"))
             return nandroid_main(argc, argv);
+        if (strstr(argv[0], "bu") == argv[0] + strlen(argv[0]) - 2)
+            return bu_main(argc, argv);
         if (strstr(argv[0], "reboot"))
             return reboot_main(argc, argv);
 #ifdef BOARD_RECOVERY_HANDLES_MOUNT
@@ -825,6 +849,8 @@ main(int argc, char **argv) {
         }
         if (strstr(argv[0], "setprop"))
             return setprop_main(argc, argv);
+        if (strstr(argv[0], "getprop"))
+            return getprop_main(argc, argv);
         return busybox_driver(argc, argv);
     }
     __system("/sbin/postrecoveryboot.sh");
@@ -849,6 +875,8 @@ main(int argc, char **argv) {
     const char *send_intent = NULL;
     const char *update_package = NULL;
     int wipe_data = 0, wipe_cache = 0;
+    int sideload = 0;
+    int headless = 0;
 
     LOGI("Checking arguments.\n");
     int arg;
@@ -862,12 +890,28 @@ main(int argc, char **argv) {
         wipe_data = wipe_cache = 1;
 #endif
         break;
+        case 'h':
+            ui_set_background(BACKGROUND_ICON_CID);
+            ui_show_text(0);
+            headless = 1;
+            break;
         case 'c': wipe_cache = 1; break;
         case 't': ui_show_text(1); break;
         case '?':
             LOGE("Invalid command argument\n");
             continue;
         }
+    }
+
+    struct selinux_opt seopts[] = {
+      { SELABEL_OPT_PATH, "/file_contexts" }
+    };
+
+    sehandle = selabel_open(SELABEL_CTX_FILE, seopts, 1);
+
+    if (!sehandle) {
+        fprintf(stderr, "Warning: No file_contexts\n");
+        ui_print("Warning:  No file_contexts\n");
     }
 
     LOGI("device_recovery_start()\n");
@@ -905,13 +949,23 @@ main(int argc, char **argv) {
         if (status != INSTALL_SUCCESS) ui_print("Installation aborted.\n");
     } else if (wipe_data) {
         if (device_wipe_data()) status = INSTALL_ERROR;
+        ignore_data_media_workaround(1);
         if (erase_volume("/data")) status = INSTALL_ERROR;
+        ignore_data_media_workaround(0);
         if (has_datadata() && erase_volume("/datadata")) status = INSTALL_ERROR;
         if (wipe_cache && erase_volume("/cache")) status = INSTALL_ERROR;
         if (status != INSTALL_SUCCESS) ui_print("Data wipe failed.\n");
     } else if (wipe_cache) {
         if (wipe_cache && erase_volume("/cache")) status = INSTALL_ERROR;
         if (status != INSTALL_SUCCESS) ui_print("Cache wipe failed.\n");
+    } else if (sideload) {
+        signature_check_enabled = 0;
+        if (!headless)
+          ui_set_show_text(1);
+        if (0 == apply_from_adb()) {
+            status = INSTALL_SUCCESS;
+            ui_set_show_text(0);
+        }
     } else {
         LOGI("Checking for extendedcommand...\n");
         status = INSTALL_ERROR;  // No command specified
@@ -920,8 +974,10 @@ main(int argc, char **argv) {
         signature_check_enabled = 0;
         script_assert_enabled = 0;
         is_user_initiated_recovery = 1;
-        ui_set_show_text(1);
-        ui_set_background(BACKGROUND_ICON_CLOCKWORK);
+        if (!headless) {
+          ui_set_show_text(1);
+          ui_set_background(BACKGROUND_ICON_CLOCKWORK);
+        }
         
         if (extendedcommand_file_exists()) {
             LOGI("Running extendedcommand...\n");
@@ -938,11 +994,16 @@ main(int argc, char **argv) {
         }
     }
 
+    setup_adbd();
+
+    if (headless) {
+      headless_wait();
+    }
     if (status != INSTALL_SUCCESS && !is_user_initiated_recovery) {
         ui_set_show_text(1);
         ui_set_background(BACKGROUND_ICON_ERROR);
     }
-    if (status != INSTALL_SUCCESS || ui_text_visible()) {
+    else if (status != INSTALL_SUCCESS || ui_text_visible()) {
         prompt_and_wait();
     }
 

@@ -473,10 +473,10 @@ get_menu_selection(const char** headers, char** items, int menu_only,
     int wrap_count = 0;
 
     while (chosen_item < 0 && chosen_item != GO_BACK) {
-        int key = ui_wait_key();
+        struct keyStruct *key = ui_wait_key();
         int visible = ui_text_visible();
 
-        if (key == -1) {   // ui_wait_key() timed out
+        if (key->code == -1) {   // ui_wait_key() timed out
             if (ui_text_ever_visible()) {
                 continue;
             } else {
@@ -485,10 +485,10 @@ get_menu_selection(const char** headers, char** items, int menu_only,
                 return ITEM_REBOOT;
             }
         }
-        else if (key == -2) {   // we are returning from ui_cancel_wait_key(): trigger a GO_BACK
+        else if (key->code == -2) {   // we are returning from ui_cancel_wait_key(): trigger a GO_BACK
             return GO_BACK;
         }
-        else if (key == -3) {   // an USB device was plugged in (returning from ui_wait_key())
+        else if (key->code == -3) {   // an USB device was plugged in (returning from ui_wait_key())
             return REFRESH;
         }
 

@@ -946,10 +946,10 @@ main(int argc, char **argv) {
 
 #ifdef BOARD_RECOVERY_SWIPE
 #ifndef BOARD_TOUCH_RECOVERY
-    //display directions for swipe controls
-    ui_print("Swipe up/down to change selections.\n");
-    ui_print("Swipe to the right for enter.\n");
-    ui_print("Swipe to the left for back.\n");
+	//display directions for swipe controls
+	//ui_print("Swipe up/down to change selections.\n");
+	//ui_print("Swipe to the right for enter.\n");
+	//ui_print("Swipe to the left for back.\n");
 #endif
 #endif
 
@@ -1097,6 +1097,11 @@ main(int argc, char **argv) {
         ui_set_background(BACKGROUND_ICON_ERROR);
     }
     else if (status != INSTALL_SUCCESS || ui_text_visible()) {
+	struct stat info;
+        ensure_path_mounted("/sdcard/");
+        __system("mkdir -p /sdcard/clockworkmod/;");
+	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+	        __system("touch /sdcard/clockworkmod/.swipe_nav;");
         prompt_and_wait();
     }
 

@@ -47,16 +47,18 @@ void swipe_handle_input(int fd, struct input_event *ev) {
             in_touch = 1;
             reset_gestures();
         } else { // finger lifted
-            ev->type = EV_KEY;
             if(slide_right == 1) {
+                ev->type = EV_KEY;
                 ev->code = KEY_POWER;
                 slide_right = 0;
+                ev->value = 1;
             } else if(slide_left == 1) {
+                ev->type = EV_KEY;
                 ev->code = KEY_BACK;
                 slide_left = 0;
+                ev->value = 1;
             }
 
-            ev->value = 1;
             in_touch = 0;
             reset_gestures();
         }

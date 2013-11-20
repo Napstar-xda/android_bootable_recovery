@@ -362,11 +362,14 @@ static void draw_screen_locked(void)
 
 #ifndef BOARD_TOUCH_RECOVERY
         if (show_menu) {
-			draw_icon_locked(gMenuIcon[MENU_BACK], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
-			draw_icon_locked(gMenuIcon[MENU_DOWN], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
-			draw_icon_locked(gMenuIcon[MENU_UP], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
-			draw_icon_locked(gMenuIcon[MENU_SELECT], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
-
+        	struct stat info;
+    		if (0 != stat("/sdcard/clockworkmod/.menu_nav", &info))
+    		{
+				draw_icon_locked(gMenuIcon[MENU_BACK], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
+				draw_icon_locked(gMenuIcon[MENU_DOWN], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
+				draw_icon_locked(gMenuIcon[MENU_UP], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
+				draw_icon_locked(gMenuIcon[MENU_SELECT], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
+			}
             //gr_color(MENU_TEXT_COLOR);
             //gr_fill(0, (menu_top + menu_sel - menu_show_start) * CHAR_HEIGHT,
             //        gr_fb_width(), (menu_top + menu_sel - menu_show_start + 1)*CHAR_HEIGHT+1);
@@ -567,98 +570,107 @@ int device_handle_mouse(struct keyStruct *key, int visible)
 	{
 		if((key->code == KEY_SCROLLUP || key->code == KEY_SCROLLDOWN) && (abs(abs(key->length) - abs(key->Xlength)) < 0.2*resY ))
 		{
-			if(key->code == KEY_SCROLLDOWN)
-			{
-				selMenuButtonIcon = -1;
-				if (menu_show_start > 0)
+			struct stat info;
+	    	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+	    	{
+				if(key->code == KEY_SCROLLDOWN)
 				{
-					menu_show_start = menu_show_start-BUTTON_MAX_ROWS+BUTTON_EQUIVALENT(menu_top);
-					if (menu_show_start < 0)
-						menu_show_start = 0;
-						selMenuButtonIcon = 0;
-					return menu_show_start;
-				}
+					selMenuButtonIcon = -1;
+					if (menu_show_start > 0)
+					{
+						menu_show_start = menu_show_start-BUTTON_MAX_ROWS+BUTTON_EQUIVALENT(menu_top);
+						if (menu_show_start < 0)
+							menu_show_start = 0;
+							selMenuButtonIcon = 0;
+						return menu_show_start;
+					}
 
-				return GO_BACK;
-			}
-			else if	(key->code == KEY_SCROLLUP)
-			{
-				if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
+					return GO_BACK;
+				}
+				else if	(key->code == KEY_SCROLLUP)
 				{
-					menu_show_start = menu_show_start+BUTTON_MAX_ROWS-BUTTON_EQUIVALENT(menu_top) -2;
-					selMenuButtonIcon = 1;
-					return menu_show_start+1;
+					if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
+					{
+						menu_show_start = menu_show_start+BUTTON_MAX_ROWS-BUTTON_EQUIVALENT(menu_top) -2;
+						selMenuButtonIcon = 1;
+						return menu_show_start+1;
+					}
 				}
 			}
 		}
 		else if((key->y < (resY - MENU_MAX_HEIGHT)) &&  (key->length < 0.1*resY))
 		{
-		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
-		else
-			j = menu_items - menu_show_start;
+			struct stat info;
+	    	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+	    	{
+				if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
+					j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+				else
+					j = menu_items - menu_show_start;
 
-			int rowOffset = menu_top*CHAR_HEIGHT;
+				int rowOffset = menu_top*CHAR_HEIGHT;
 
-			int sel_menu;
-			if(key->x < resX/2 && key->y >= rowOffset)
-			{
-				sel_menu = (int)((key->y - rowOffset)/MENU_HEIGHT );
-				sel_menu = sel_menu*2;
-			}
-			else if(key->x >= resX/2 && key->y >= (rowOffset + MENU_INCREMENT))
-			{
-				sel_menu = (int)((key->y - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
-				sel_menu = sel_menu*2 + 1;
-			}
-			else
-				return -1;
-
-			if(key->y > rowOffset && key->y < rowOffset + (j+1)*MENU_INCREMENT)
-			{
-				selMenuButtonIcon = -1;
-				if(sel_menu+menu_show_start < 0)
-					return 0;
-				if (sel_menu == j)
+				int sel_menu;
+				if(key->x < resX/2 && key->y >= rowOffset)
+				{
+					sel_menu = (int)((key->y - rowOffset)/MENU_HEIGHT );
+					sel_menu = sel_menu*2;
+				}
+				else if(key->x >= resX/2 && key->y >= (rowOffset + MENU_INCREMENT))
+				{
+					sel_menu = (int)((key->y - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+					sel_menu = sel_menu*2 + 1;
+				}
+				else
 					return -1;
 
-				return sel_menu+menu_show_start;
+				if(key->y > rowOffset && key->y < rowOffset + (j+1)*MENU_INCREMENT)
+				{
+					selMenuButtonIcon = -1;
+					if(sel_menu+menu_show_start < 0)
+						return 0;
+					if (sel_menu == j)
+						return -1;
+
+					return sel_menu+menu_show_start;
+				}
 			}
 		}
 		else if((key->y > (resY - MENU_MAX_HEIGHT))  &&  (key->length < 0.1*resY))
 		{
+			struct stat info;
+	    	if (0 != stat("/sdcard/clockworkmod/.menu_nav", &info))
+	    	{
+					//ToDo: Following structure should be global
+				struct { int x; int y; int xL; int xR; } MENU_ICON[] = {
+					{  get_menu_icon_info(MENU_BACK,MENU_ICON_X),	get_menu_icon_info(MENU_BACK,MENU_ICON_Y), get_menu_icon_info(MENU_BACK,MENU_ICON_XL), get_menu_icon_info(MENU_BACK,MENU_ICON_XR) },
+					{  get_menu_icon_info(MENU_DOWN,MENU_ICON_X),	get_menu_icon_info(MENU_DOWN,MENU_ICON_Y), get_menu_icon_info(MENU_DOWN,MENU_ICON_XL), get_menu_icon_info(MENU_DOWN,MENU_ICON_XR) },
+					{  get_menu_icon_info(MENU_UP,MENU_ICON_X),	get_menu_icon_info(MENU_UP,MENU_ICON_Y), get_menu_icon_info(MENU_UP,MENU_ICON_XL), get_menu_icon_info(MENU_UP,MENU_ICON_XR) },
+					{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
+				};
+				int position;
+				position = key->x;
+				if(TOUCH_CONTROL_DEBUG == 4 || TOUCH_CONTROL_DEBUG == 5)
+				if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
+					ui_print("Touch MENU_BACK\n");
+				else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
+					ui_print("Touch MENU_DOWN\n");
+				else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
+					ui_print("Touch MENU_UP\n");
+				else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
+					ui_print("Touch MENU_SELECT\n");
+				else
+						ui_print("Touch NO_ACTION\n");
 
-//ToDo: Following structure should be global
-		struct { int x; int y; int xL; int xR; } MENU_ICON[] = {
-			{  get_menu_icon_info(MENU_BACK,MENU_ICON_X),	get_menu_icon_info(MENU_BACK,MENU_ICON_Y), get_menu_icon_info(MENU_BACK,MENU_ICON_XL), get_menu_icon_info(MENU_BACK,MENU_ICON_XR) },
-			{  get_menu_icon_info(MENU_DOWN,MENU_ICON_X),	get_menu_icon_info(MENU_DOWN,MENU_ICON_Y), get_menu_icon_info(MENU_DOWN,MENU_ICON_XL), get_menu_icon_info(MENU_DOWN,MENU_ICON_XR) },
-			{  get_menu_icon_info(MENU_UP,MENU_ICON_X),	get_menu_icon_info(MENU_UP,MENU_ICON_Y), get_menu_icon_info(MENU_UP,MENU_ICON_XL), get_menu_icon_info(MENU_UP,MENU_ICON_XR) },
-			{  get_menu_icon_info(MENU_SELECT,MENU_ICON_X),	get_menu_icon_info(MENU_SELECT,MENU_ICON_Y), get_menu_icon_info(MENU_SELECT,MENU_ICON_XL), get_menu_icon_info(MENU_SELECT,MENU_ICON_XR) },
-		};
-		int position;
-
-		position = key->x;
-
-if(TOUCH_CONTROL_DEBUG == 4 || TOUCH_CONTROL_DEBUG == 5)
-	if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
-		ui_print("Touch MENU_BACK\n");
-	else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
-		ui_print("Touch MENU_DOWN\n");
-	else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
-		ui_print("Touch MENU_UP\n");
-	else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
-		ui_print("Touch MENU_SELECT\n");
-	else
-		ui_print("Touch NO_ACTION\n");
-
-		if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
-			return GO_BACK;
-		else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
-			return HIGHLIGHT_DOWN;
-		else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
-			return HIGHLIGHT_UP;
-		else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
-			return SELECT_ITEM;
+				if(position > MENU_ICON[MENU_BACK].xL && position < MENU_ICON[MENU_BACK].xR)
+					return GO_BACK;
+				else if(position > MENU_ICON[MENU_DOWN].xL && position < MENU_ICON[MENU_DOWN].xR)
+					return HIGHLIGHT_DOWN;
+				else if(position > MENU_ICON[MENU_UP].xL && position < MENU_ICON[MENU_UP].xR)
+					return HIGHLIGHT_UP;
+				else if(position > MENU_ICON[MENU_SELECT].xL && position < MENU_ICON[MENU_SELECT].xR)
+					return SELECT_ITEM;
+			}
 		}
 	}
 	return NO_ACTION;
@@ -692,113 +704,120 @@ if(TOUCH_CONTROL_DEBUG == 3 || TOUCH_CONTROL_DEBUG == 5)
 		positionY = curPos[2];
 
 		pthread_mutex_lock(&gUpdateMutex);
+		struct stat info;
 		if(positionY < (resY - MENU_MAX_HEIGHT)) {
-			int j=0;
-
-		    if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
-			j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
-		else
-			j = menu_items - menu_show_start;
-
-			int rowOffset = menu_top*CHAR_HEIGHT;
-			int sel_menu;
-			if(positionX < resX/2 && positionY >= rowOffset)
+	    	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
 			{
-				sel_menu = (int)((positionY - rowOffset)/MENU_HEIGHT );
-				sel_menu = sel_menu*2;
-			}
-			else if(positionX >= resX/2 && positionY >= (rowOffset + MENU_INCREMENT))
-			{
-				sel_menu = (int)((positionY - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
-				sel_menu = sel_menu*2 + 1;
-			}
-			else
-				sel_menu = -1;
+				int j=0;
 
-			if(selMenuButtonIcon < 0)
-				selMenuButtonIcon = 0;
+				if (menu_items - menu_show_start + BUTTON_EQUIVALENT(menu_top) > BUTTON_MAX_ROWS)
+					j = BUTTON_MAX_ROWS - BUTTON_EQUIVALENT(menu_top);
+				else
+					j = menu_items - menu_show_start;
 
-			if(positionY > rowOffset && positionY < rowOffset + (j+1)*MENU_INCREMENT && selMenuButtonIcon != sel_menu && sel_menu != j && sel_menu >= 0)
-			{
-				if (sel_menu %2 == 0)
+				int rowOffset = menu_top*CHAR_HEIGHT;
+				int sel_menu;
+				if(positionX < resX/2 && positionY >= rowOffset)
 				{
-					draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
-	                gr_color(255, 0, 0, 255);
-					if(menu[sel_menu + menu_show_start + menu_top][0] != '-')
-	                    draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
-	                else
-	                {
-	                    draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
-	                    draw_text_line(sel_menu , submenu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
-	                }
+					sel_menu = (int)((positionY - rowOffset)/MENU_HEIGHT );
+					sel_menu = sel_menu*2;
+				}
+				else if(positionX >= resX/2 && positionY >= (rowOffset + MENU_INCREMENT))
+				{
+					sel_menu = (int)((positionY - rowOffset - MENU_INCREMENT)/MENU_HEIGHT );
+					sel_menu = sel_menu*2 + 1;
 				}
 				else
-				{
-					draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
-	                gr_color(255, 0, 0, 255);
-					if(menu[sel_menu + menu_show_start + menu_top][0] != '-')
-	                    draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
-	                else
-	                {
-	                    draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
-	                    draw_text_line(sel_menu , submenu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
-	                }
-				}
-				if (selMenuButtonIcon %2 == 0)
-				{
-					draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
-	                gr_color(MENU_TEXT_COLOR);
-					if(menu[selMenuButtonIcon + menu_show_start + menu_top][0] != '-')
-	                    draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
-	                else
-	                {
-	                    draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
-	                    draw_text_line(selMenuButtonIcon , submenu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
-	                }
+					sel_menu = -1;
 
-				}
-				else
-				{
-					draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
-	                gr_color(MENU_TEXT_COLOR);
-					if(menu[selMenuButtonIcon + menu_show_start + menu_top][0] != '-')
-	                    draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
-	                else
-	                {
-	                    draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
-	                    draw_text_line(selMenuButtonIcon , submenu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
-	                }
+				if(selMenuButtonIcon < 0)
+					selMenuButtonIcon = 0;
 
+				if(positionY > rowOffset && positionY < rowOffset + (j+1)*MENU_INCREMENT && selMenuButtonIcon != sel_menu && sel_menu != j && sel_menu >= 0)
+				{
+					if (sel_menu %2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
+			            gr_color(255, 0, 0, 255);
+						if(menu[sel_menu + menu_show_start + menu_top][0] != '-')
+			                draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+			            else
+			            {
+			                draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
+			                draw_text_line(sel_menu , submenu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
+			            }
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R_SEL], resX/2, menu_top*CHAR_HEIGHT + (sel_menu+1)*MENU_INCREMENT);
+			            gr_color(255, 0, 0, 255);
+						if(menu[sel_menu + menu_show_start + menu_top][0] != '-')
+			                draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+			            else
+			            {
+			                draw_text_line(sel_menu , menu[sel_menu + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
+			                draw_text_line(sel_menu , submenu[sel_menu + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
+			            }
+					}
+					if (selMenuButtonIcon %2 == 0)
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_L], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
+			            gr_color(MENU_TEXT_COLOR);
+						if(menu[selMenuButtonIcon + menu_show_start + menu_top][0] != '-')
+			                draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_LEFT_OFFSET);
+			            else
+			            {
+			                draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
+			                draw_text_line(selMenuButtonIcon , submenu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_LEFT_OFFSET);
+			            }
+
+					}
+					else
+					{
+						draw_icon_locked(gMenuIcon[MENU_BUTTON_R], resX/2, menu_top*CHAR_HEIGHT + (selMenuButtonIcon+1)*MENU_INCREMENT);
+			            gr_color(MENU_TEXT_COLOR);
+						if(menu[selMenuButtonIcon + menu_show_start + menu_top][0] != '-')
+			                draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER, 1, MENU_ITEM_RIGHT_OFFSET);
+			            else
+			            {
+			                draw_text_line(selMenuButtonIcon , menu[selMenuButtonIcon + menu_show_start + menu_top]+1, rowOffset-MENU_CENTER-CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
+			                draw_text_line(selMenuButtonIcon , submenu[selMenuButtonIcon + menu_show_start + menu_top], rowOffset-MENU_CENTER+CHAR_HEIGHT/2, 1, MENU_ITEM_RIGHT_OFFSET);
+			            }
+
+					}
+					selMenuButtonIcon = sel_menu;
+					menu_sel = sel_menu;
+					gr_flip();
 				}
-				selMenuButtonIcon = sel_menu;
-				menu_sel = sel_menu;
-				gr_flip();
 			}
 		}
 		else {
-			if(positionX > MENU_ICON[MENU_BACK].xL && positionX < MENU_ICON[MENU_BACK].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
-				draw_icon_locked(gMenuIcon[MENU_BACK_M], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
-				selMenuIcon = MENU_BACK;
-				gr_flip();
-			}
-			else if(positionX > MENU_ICON[MENU_DOWN].xL && positionX < MENU_ICON[MENU_DOWN].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
-				draw_icon_locked(gMenuIcon[MENU_DOWN_M], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
-				selMenuIcon = MENU_DOWN;
-				gr_flip();
-			}
-			else if(positionX > MENU_ICON[MENU_UP].xL && positionX < MENU_ICON[MENU_UP].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
-				draw_icon_locked(gMenuIcon[MENU_UP_M], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
-				selMenuIcon = MENU_UP;
-				gr_flip();
-			}
-			else if(positionX > MENU_ICON[MENU_SELECT].xL && positionX < MENU_ICON[MENU_SELECT].xR) {
-				draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
-				draw_icon_locked(gMenuIcon[MENU_SELECT_M], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
-				selMenuIcon = MENU_SELECT;
-				gr_flip();
+	    	if (0 != stat("/sdcard/clockworkmod/.menu_nav", &info))
+	    	{
+				if(positionX > MENU_ICON[MENU_BACK].xL && positionX < MENU_ICON[MENU_BACK].xR) {
+					draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
+					draw_icon_locked(gMenuIcon[MENU_BACK_M], MENU_ICON[MENU_BACK].x, MENU_ICON[MENU_BACK].y);
+					selMenuIcon = MENU_BACK;
+					gr_flip();
+				}
+				else if(positionX > MENU_ICON[MENU_DOWN].xL && positionX < MENU_ICON[MENU_DOWN].xR) {
+					draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
+					draw_icon_locked(gMenuIcon[MENU_DOWN_M], MENU_ICON[MENU_DOWN].x, MENU_ICON[MENU_DOWN].y);
+					selMenuIcon = MENU_DOWN;
+					gr_flip();
+				}
+				else if(positionX > MENU_ICON[MENU_UP].xL && positionX < MENU_ICON[MENU_UP].xR) {
+					draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
+					draw_icon_locked(gMenuIcon[MENU_UP_M], MENU_ICON[MENU_UP].x, MENU_ICON[MENU_UP].y);
+					selMenuIcon = MENU_UP;
+					gr_flip();
+				}
+				else if(positionX > MENU_ICON[MENU_SELECT].xL && positionX < MENU_ICON[MENU_SELECT].xR) {
+					draw_icon_locked(gMenuIcon[selMenuIcon], MENU_ICON[selMenuIcon].x, MENU_ICON[selMenuIcon].y);
+					draw_icon_locked(gMenuIcon[MENU_SELECT_M], MENU_ICON[MENU_SELECT].x, MENU_ICON[MENU_SELECT].y);
+					selMenuIcon = MENU_SELECT;
+					gr_flip();
+				}
 			}
 		}
 		key_queue_len_back = key_queue_len;
@@ -827,7 +846,9 @@ static int input_callback(int fd, short revents, void *data)
         return 0;
 #else
 #ifdef BOARD_RECOVERY_SWIPE
-    swipe_handle_input(fd, &ev);
+	struct stat info;
+	if (0 != stat("/sdcard/clockworkmod/.swipe_nav", &info))
+	    swipe_handle_input(fd, &ev);
 #endif
 #endif
 

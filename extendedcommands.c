@@ -103,6 +103,134 @@ toggle_signature_check()
     ui_print("Signature Check: %s\n", signature_check_enabled ? "Enabled" : "Disabled");
 }
 
+void toggle_touch_control_menu()
+{
+    if (ensure_path_mounted("/sdcard/") != 0) {
+        LOGE ("Can't mount sdcard\n");
+        return;
+    }
+
+    static const char* headers[] = {  "Toggle touch control type",
+                                "",
+                                "Selecting either full touch",
+                                "OR swipe control is possible.",
+                                "Menu keys are optional.",
+                                "",
+                                NULL
+    };
+
+    static char* list[] = { "",			//Toggle full touch 
+                            "",			//Toggle swipe control
+                            "",			//Toggle menu navigation
+                            "Disable all touch",
+                            NULL
+    };
+    
+    struct stat info;
+    if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+    {
+    	list[0] = "Touch control - ON";
+    }
+    else if (0 == stat("/sdcard/clockworkmod/.full_nav", &info))
+    {
+    	list[0] = "Touch control - OFF";
+    }
+
+    if (0 != stat("/sdcard/clockworkmod/.swipe_nav", &info))
+    {
+    	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+	{
+		list[1] = "Swipe control - OFF";
+		__system("touch /sdcard/clockworkmod/.swipe_nav");
+	}
+	else if (0 == stat("/sdcard/clockworkmod/.full_nav", &info))
+		list[1] = "Swipe control - ON";
+    }
+    else if (0 == stat("/sdcard/clockworkmod/.swipe_nav", &info))
+    {
+    	list[1] = "Swipe control - OFF";
+    }
+
+    if (0 != stat("/sdcard/clockworkmod/.menu_nav", &info))
+    	list[2] = "Menu control - ON";
+    else if (0 == stat("/sdcard/clockworkmod/.menu_nav", &info))
+    	list[2] = "Menu control - OFF";
+
+
+    int chosen_item = get_menu_selection(headers, list, 0, 0);
+    switch (chosen_item)
+    {
+        case 0:
+            {
+            	if (0 != stat("/sdcard/clockworkmod/.full_nav", &info))
+            	{
+		    	__system("touch /sdcard/clockworkmod/.full_nav");
+		    	__system("rm /sdcard/clockworkmod/.swipe_nav");
+		    	ui_print("Full touch control disabled\n");
+		}
+		else if (0 == stat("/sdcard/clockworkmod/.full_nav", &info))
+		{
+		    	__system("rm /sdcard/clockworkmod/.full_nav");
+		    	__system("touch /sdcard/clockworkmod/.swipe_nav");
+		    	ui_print("Full touch control enabled\n");
+		    	ui_print("Click on buttons on screen for selection.\n");
+		    	ui_print("Swipe left for back.\n");
+		}
+		
+		toggle_touch_control_menu();
+            }
+            break;
+        case 1:
+            {
+            	if (0 != stat("/sdcard/clockworkmod/.swipe_nav", &info))
+            	{
+		    	__system("touch /sdcard/clockworkmod/.swipe_nav");
+		    	__system("rm /sdcard/clockworkmod/.full_nav");
+		    	ui_print("Swipe touch control disabled\n");
+		}
+		else if (0 == stat("/sdcard/clockworkmod/.swipe_nav", &info))
+		{
+		    	__system("rm /sdcard/clockworkmod/.swipe_nav");
+		    	__system("touch /sdcard/clockworkmod/.full_nav");
+		    	ui_print("Swipe touch control enabled\n");
+	    		ui_print("Swipe up/down to change selections.\n");
+			ui_print("Swipe to the right for enter.\n");
+			ui_print("Swipe to the left for back.\n");
+
+		}
+		toggle_touch_control_menu();
+            }
+            break;
+        case 2:
+            {
+            	if (0 != stat("/sdcard/clockworkmod/.menu_nav", &info))
+            	{
+		    	__system("touch /sdcard/clockworkmod/.menu_nav");
+		    	ui_print("Menu touch control disabled\n");
+		}
+		else if (0 == stat("/sdcard/clockworkmod/.menu_nav", &info))
+		{
+		    	__system("rm /sdcard/clockworkmod/.menu_nav");
+		    	ui_print("Menu touch control enabled\n");
+		    	ui_print("Use menu icons at bottom for navigation\n");
+		}
+		toggle_touch_control_menu();
+            }
+            break;
+        case 3:
+            {
+	    	__system("touch /sdcard/clockworkmod/.full_nav");
+	    	__system("touch /sdcard/clockworkmod/.swipe_nav");
+	    	__system("touch /sdcard/clockworkmod/.menu_nav");
+	    	ui_print("All sorts of touch control disabled\n");
+	    	ui_print("Use Volume/Power keys to navigate.\n");
+		toggle_touch_control_menu();
+            }
+            break;
+    }
+    //ui_set_show_text(1);
+}
+
 int install_zip(const char* packagefilepath)
 {
     ui_print("\n-- Installing: %s\n", packagefilepath);
@@ -1343,6 +1471,7 @@ void show_advanced_menu()
                             "partition sdcard",
                             "partition external sdcard",
                             "partition internal sdcard",
+							"Toggle touch control",
                             NULL
     };
 
@@ -1457,6 +1586,9 @@ void show_advanced_menu()
                 break;
             case 9:
                 partition_sdcard("/emmc");
+                break;
+			case 10:
+				toggle_touch_control_menu();
                 break;
         }
     }

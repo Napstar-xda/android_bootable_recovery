@@ -57,9 +57,11 @@ static int gShowBackButton = 0;
 #define MENU_HEIGHT gr_get_height(gMenuIcon[MENU_BUTTON_L])				//For touch based graphical menu
 #define MENU_CENTER (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)			//To bring menu text at the center of button. Text location from bottom of menu button.
 #define MENU_INCREMENT (gr_get_height(gMenuIcon[MENU_BUTTON_L])/2)		//Used for plotting menu buttons - specify spacing between two successive buttons location (X-start, Y-start)
-#define MENU_ITEM_LEFT_OFFSET 0.05*resX						//X location relative to screen width for placement of menu items inside two cloumns of menu buttons
-#define MENU_ITEM_RIGHT_OFFSET 0.55*resX
+#define MENU_ITEM_LEFT_OFFSET 0.05*gr_fb_width()						//X location relative to screen width for placement of menu items inside two cloumns of menu buttons
+#define MENU_ITEM_RIGHT_OFFSET 0.55*gr_fb_width()
 #define MENU_TITLE_BGK_HEIGHT gr_get_height(gMenuIcon[MENU_TITLE_BGK])				//Height of the title image used
+#define resX gr_fb_width()
+#define resY gr_fb_height()
 
 //In this case MENU_SELECT icon has maximum possible height.
 #define MENU_MAX_HEIGHT gr_get_height(gMenuIcon[MENU_SELECT])		//Maximum allowed height for navigation icons
@@ -922,9 +924,9 @@ if(TOUCH_CONTROL_DEBUG == 1)
 		} else if (ev.type == EV_ABS) {
 		  // multitouch records are sent as ABS events. Well at least on the SGS-i9000
 		  if (ev.code == ABS_MT_POSITION_X) {
-		    actPos.x = MT_X(ev.value);
+		    actPos.x = MT_X(fd, ev.value);
 		  } else if (ev.code == ABS_MT_POSITION_Y) {
-		    actPos.y = MT_Y(ev.value);
+		    actPos.y = MT_Y(fd, ev.value);
 //		  } else if (ev.code == ABS_MT_TOUCH_MAJOR) {
 //		    actPos.pressure = ev.value; // on SGS-i9000 this is 0 for not-pressed and 40 for pressed
 		  } else if (ev.code == ABS_MT_PRESSURE) {

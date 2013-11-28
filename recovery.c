@@ -466,7 +466,7 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 return ITEM_REBOOT;
             }
         }
-        else if (key == -2) {
+        else if (key->code == -2) {   // we are returning from ui_cancel_wait_key(): trigger a GO_BACK
             return GO_BACK;
         }
 

@@ -1457,7 +1457,10 @@ void ui_cancel_wait_key() {
 
 struct keyStruct *ui_wait_key()
 {
-    if (boardEnableKeyRepeat) return ui_wait_key_with_repeat();
+    if (boardEnableKeyRepeat){
+	key.code = ui_wait_key_with_repeat();
+	return &key;
+    }
     pthread_mutex_lock(&key_queue_mutex);
 	key.code = -1;
 
@@ -1512,7 +1515,7 @@ int key_can_repeat(int key)
 
 int ui_wait_key_with_repeat()
 {
-    int key = -1;
+    int keyVal = -1;
 
     // Loop to wait for more keys.
     do {
@@ -1531,7 +1534,8 @@ int ui_wait_key_with_repeat()
         }
         pthread_mutex_unlock(&key_queue_mutex);
         if (rc == ETIMEDOUT && !usb_connected()) {
-            return -1;
+            keyVal = -1;
+            return &key;
         }
 
         // Loop to wait wait for more keys, or repeated keys to be ready.
@@ -1551,33 +1555,33 @@ int ui_wait_key_with_repeat()
                 break;
             }
 
-            key = key_queue[0];
+            keyVal = key_queue[0];
             memcpy(&key_queue[0], &key_queue[1], sizeof(int) * --key_queue_len);
 
             // sanity check the returned key.
-            if (key < 0) {
+            if (keyVal < 0) {
                 pthread_mutex_unlock(&key_queue_mutex);
-                return key;
+                return &key;
             }
 
             // Check for already released keys and drop them if they've repeated.
-            if (!key_pressed[key] && key_last_repeat[key] > 0) {
+            if (!key_pressed[keyVal] && key_last_repeat[keyVal] > 0) {
                 pthread_mutex_unlock(&key_queue_mutex);
                 continue;
             }
 
-            if (key_can_repeat(key)) {
+            if (key_can_repeat(keyVal)) {
                 // Re-add the key if a repeat is expected, since we just popped it. The
                 // if below will determine when the key is actually repeated (returned)
                 // in the mean time, the key will be passed through the queue over and
                 // over and re-evaluated each time.
-                if (key_pressed[key]) {
-                    key_queue[key_queue_len] = key;
+                if (key_pressed[keyVal]) {
+                    key_queue[key_queue_len] = keyVal;
                     key_queue_len++;
                 }
-                if ((now_msec > key_press_time[key] + UI_KEY_WAIT_REPEAT && now_msec > key_last_repeat[key] + UI_KEY_REPEAT_INTERVAL) ||
-                        key_last_repeat[key] == 0) {
-                    key_last_repeat[key] = now_msec;
+                if ((now_msec > key_press_time[keyVal] + UI_KEY_WAIT_REPEAT && now_msec > key_last_repeat[keyVal] + UI_KEY_REPEAT_INTERVAL) ||
+                        key_last_repeat[keyVal] == 0) {
+                    key_last_repeat[keyVal] = now_msec;
                 } else {
                     // Not ready
                     pthread_mutex_unlock(&key_queue_mutex);
@@ -1585,17 +1589,17 @@ int ui_wait_key_with_repeat()
                 }
             }
             pthread_mutex_unlock(&key_queue_mutex);
-            return key;
+            return &key;
         }
     } while (1);
 
-    return key;
+    return &key;
 }
 
-int ui_key_pressed(int key)
+int ui_key_pressed(struct keyStruct *key)
 {
     // This is a volatile static array, don't bother locking
-    return key_pressed[key];
+    return key_pressed[key->code];
 }
 
 void ui_clear_key_queue() {
@@ -1635,13 +1639,6 @@ int ui_get_selected_item() {
   return menu_sel;
 }
 
-int ui_handle_key(int key, int visible) {
-#ifdef BOARD_TOUCH_RECOVERY
-    return touch_handle_key(key, visible);
-#else
-    return device_handle_key(key, visible);
-#endif
-}
 
 void ui_delete_line() {
     pthread_mutex_lock(&gUpdateMutex);

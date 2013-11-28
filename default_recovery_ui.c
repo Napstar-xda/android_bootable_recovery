@@ -41,15 +41,15 @@ int TOUCH_CONTROL_DEBUG = 0;
 	check the values returned by on screen touch output by click on the
 	touch panel extremeties
 */
-int maxX=1535;		//Set to 0 for debugging
-int maxY=2559;		//Set to 0 for debugging
+//int maxX=1535;		//Set to 0 for debugging
+//int maxY=2559;		//Set to 0 for debugging
 
 /*
 	the values of following two variables are dependent on specifc device resolution
 	and can be obtained using the outputs of the gr_fb functions
 */
-int resX=768;		//Value obtained from function 'gr_fb_width()'
-int resY=1280;		//Value obtained from function 'gr_fb_height()'
+#define resX gr_fb_width()		//Value obtained from function 'gr_fb_width()'
+#define resY gr_fb_height()		//Value obtained from function 'gr_fb_height()'
 
 char* MENU_HEADERS[] = { "developed by Napstar",
 			 "",
@@ -139,16 +139,26 @@ return 0;
 
 
 //For those devices which has skewed X axis and Y axis detection limit (Not similar to XY resolution of device), So need normalization
-int MT_X(int x)
+int MT_X(int fd, int x)
 {
+	int abs_store[6] = {0};
+
+  	ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), abs_store);
+   	int maxX = abs_store[2];
+
 	int out;
 	out = maxX ? (int)((float)x*gr_fb_width()/maxX) : x;
 
 	return out;
 }
 
-int MT_Y(int y)
+int MT_Y(int fd, int y)
 {
+	int abs_store[6] = {0};
+   	
+   	ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), abs_store);
+   	int maxY = abs_store[2];
+
 	int out;
 	out = maxY ? (int)((float)y*gr_fb_height()/maxY) : y;
 

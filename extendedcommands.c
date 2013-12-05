@@ -1434,21 +1434,21 @@ void show_advanced_menu()
                             "key test",
                             "show log",
                             "fix permissions",
+							"Toggle touch control",
                             "partition sdcard",
                             "partition external sdcard",
                             "partition internal sdcard",
-							"Toggle touch control",
                             NULL
     };
 
     if (!can_partition("/sdcard")) {
-        list[6] = NULL;
-    }
-    if (!can_partition("/external_sd")) {
         list[7] = NULL;
     }
-    if (!can_partition("/emmc")) {
+    if (!can_partition("/external_sd")) {
         list[8] = NULL;
+    }
+    if (!can_partition("/emmc")) {
+        list[9] = NULL;
     }
 
     for (;;)
@@ -1525,17 +1525,17 @@ void show_advanced_menu()
                 __system("fix_permissions");
                 ui_print("Done!\n");
                 break;
-            case 6:
-                partition_sdcard("/sdcard");
+			case 6:
+				toggle_touch_control_menu();
                 break;
             case 7:
-                partition_sdcard("/external_sd");
+                partition_sdcard("/sdcard");
                 break;
             case 8:
-                partition_sdcard("/emmc");
+                partition_sdcard("/external_sd");
                 break;
-			case 10:
-				toggle_touch_control_menu();
+            case 9:
+                partition_sdcard("/emmc");
                 break;
         }
     }

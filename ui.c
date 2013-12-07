@@ -1161,10 +1161,10 @@ if(TOUCH_CONTROL_DEBUG)
 	return &key;
 }
 
-int ui_key_pressed(int key)
+int ui_key_pressed(struct keyStruct *key)
 {
     // This is a volatile static array, don't bother locking
-    return key_pressed[key];
+    return key_pressed[key->code];
 }
 
 void ui_clear_key_queue() {
